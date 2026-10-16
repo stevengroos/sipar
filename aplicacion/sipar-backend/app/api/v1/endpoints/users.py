@@ -6,10 +6,7 @@ from app.db.session import get_db
 from app.models import models
 from app.schemas.user import UserResponse
 from app.api import deps
-
-# Si ya tienes una función para encriptar contraseñas en tu proyecto, 
-# impórtala aquí. Por ejemplo:
-# from app.core.security import get_password_hash
+from app.core import security  # <-- 1. Importamos la librería de seguridad
 
 router = APIRouter()
 
@@ -30,7 +27,6 @@ def get_users(
     current_user: models.User = Depends(deps.RoleChecker(["superadmin", "admin"]))
 ):
     """Obtiene la lista de todos los usuarios registrados activos."""
-    # Filtramos para que solo traiga los que is_active == True
     return db.query(models.User).filter(models.User.is_active == True).order_by(models.User.id.desc()).all()
 
 # ==========================================
@@ -46,15 +42,17 @@ def create_user(
     if db.query(models.User).filter(models.User.email == user_in.email).first():
         raise HTTPException(status_code=400, detail="El correo ya está registrado.")
         
+    if not user_in.password:
+        raise HTTPException(status_code=400, detail="La contraseña es obligatoria para nuevos usuarios.")
+
     new_user = models.User(
         first_name=user_in.first_name,
         last_name=user_in.last_name,
         email=user_in.email,
         role=user_in.role,
         is_active=True,
-        # ¡CORRECCIÓN! Agregamos el company_id por defecto para evitar el IntegrityError de Postgres
         company_id=1, 
-        hashed_password=user_in.password 
+        hashed_password=security.get_password_hash(user_in.password) # <-- 2. Encriptamos con security.get_password_hash
     )
     db.add(new_user)
     db.commit()
@@ -88,7 +86,7 @@ def update_user(
     
     # Solo actualizamos la contraseña si el admin escribió una nueva
     if user_in.password and user_in.password.strip() != "":
-        user.hashed_password = user_in.password # Encriptar aquí también
+        user.hashed_password = security.get_password_hash(user_in.password) # <-- 3. Encriptamos la nueva contraseña aquí también
         
     db.commit()
     db.refresh(user)
@@ -104,7 +102,6 @@ def delete_user(
     current_user: models.User = Depends(deps.RoleChecker(["superadmin"]))
 ):
     """Realiza un borrado lógico (is_active = False) del usuario."""
-    # Seguridad de oro: Evitar que el admin activo se borre a sí mismo
     if current_user.id == user_id:
         raise HTTPException(status_code=400, detail="No puedes suspender tu propia cuenta.")
         
