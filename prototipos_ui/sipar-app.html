@@ -1,0 +1,748 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SIPAR App - Clean Energy UI</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Leaflet CSS (Mapas) -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        sipar: {
+                            dark: '#1E232D',
+                            green: '#10B981', /* Verde Energía Limpia */
+                            blue: '#3B82F6',  /* Azul secundario */
+                            light: '#F8F9FA',
+                            gray: '#8E8E93',
+                            lightgray: '#F0F0F0'
+                        }
+                    },
+                    boxShadow: {
+                        'premium': '0 8px 30px rgba(0,0,0,0.08)',
+                        'floating': '0 10px 25px rgba(0,0,0,0.15)'
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #e5e7eb; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
+        
+        /* Contenedor del simulador móvil */
+        #mobile-simulator {
+            width: 375px;
+            height: 812px;
+            background: #F8F9FA;
+            border-radius: 40px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+            overflow: hidden;
+            position: relative;
+            border: 8px solid #1E232D;
+        }
+
+        /* Mapa fondo completo */
+        #map { width: 100%; height: 100%; z-index: 0; }
+        .leaflet-control-zoom, .leaflet-control-attribution { display: none !important; }
+
+        /* Estilo para los Marcadores tipo Evergo adaptado a Energía Verde */
+        .evergo-marker {
+            background-color: white;
+            border: 1.5px solid #10B981;
+            border-radius: 8px;
+            padding: 2px 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+            font-size: 11px;
+            font-weight: 700;
+            color: #10B981;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            position: relative;
+        }
+        .evergo-marker::after {
+            content: '';
+            position: absolute;
+            bottom: -5px;
+            left: 50%;
+            transform: translateX(-50%);
+            border-width: 5px 5px 0;
+            border-style: solid;
+            border-color: #10B981 transparent transparent transparent;
+        }
+
+        /* Bottom Sheet interactivo */
+        #station-sheet {
+            position: absolute;
+            bottom: -100%;
+            left: 0;
+            width: 100%;
+            background: #F8F9FA; 
+            border-top-left-radius: 24px;
+            border-top-right-radius: 24px;
+            box-shadow: 0 -15px 30px rgba(0,0,0,0.15);
+            transition: bottom 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+            z-index: 60; 
+            padding-bottom: 20px; 
+            max-height: 85%;
+            overflow-y: auto;
+        }
+        #station-sheet.active { bottom: 0; }
+        
+        /* Ocultar scrollbar en las vistas scrolleables */
+        #station-sheet::-webkit-scrollbar, 
+        #transaction-list::-webkit-scrollbar,
+        #view-perfil::-webkit-scrollbar,
+        #view-tienda::-webkit-scrollbar,
+        #view-actividad::-webkit-scrollbar { display: none; }
+    </style>
+</head>
+<body>
+
+    <div id="mobile-simulator">
+        
+        <!-- ============================== -->
+        <!-- VISTA 1: INICIO (MAPA)         -->
+        <!-- ============================== -->
+        <div id="view-inicio" class="w-full h-full absolute top-0 left-0">
+            <!-- Capa de Mapa -->
+            <div id="map"></div>
+
+            <!-- Header Flotante: Buscador -->
+            <div class="absolute top-12 left-4 right-4 z-10 flex gap-3">
+                <div class="flex-1 bg-white rounded-full shadow-premium flex items-center px-5 py-3.5 border border-gray-100">
+                    <i class="fa-solid fa-magnifying-glass text-sipar-gray text-lg mr-3"></i>
+                    <input type="text" placeholder="Buscar cargador" class="w-full text-base font-medium outline-none bg-transparent text-sipar-dark placeholder-gray-400">
+                </div>
+                <button class="w-14 h-14 bg-white rounded-full shadow-premium flex justify-center items-center text-sipar-dark hover:bg-gray-50 transition border border-gray-100">
+                    <i class="fa-solid fa-filter text-lg"></i>
+                </button>
+            </div>
+
+            <!-- Botones Laterales -->
+            <div class="absolute top-32 right-4 z-10 flex flex-col gap-3">
+                <button class="w-12 h-12 bg-white rounded-full shadow-premium flex justify-center items-center text-sipar-dark border border-gray-100">
+                    <i class="fa-solid fa-qrcode text-lg"></i>
+                </button>
+                <button class="w-12 h-12 bg-white rounded-full shadow-premium flex justify-center items-center text-sipar-dark border border-gray-100">
+                    <i class="fa-solid fa-circle-info text-lg"></i>
+                </button>
+                <button onclick="centerMap()" class="w-12 h-12 bg-white rounded-full shadow-premium flex justify-center items-center text-sipar-dark border border-gray-100">
+                    <i class="fa-solid fa-location-crosshairs text-lg"></i>
+                </button>
+            </div>
+
+            <!-- Bottom Sheet (Detalle de Estación) -->
+            <div id="station-sheet" class="pt-3 px-4">
+                <div class="w-10 h-1 bg-gray-300 rounded-full mx-auto mb-4 cursor-pointer" onclick="closeSheet()"></div>
+                
+                <div class="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 mb-4">
+                    <div class="flex justify-between items-start mb-3">
+                        <h2 id="station-name" class="text-lg font-bold text-sipar-dark leading-tight w-2/3">SIPAR Luque Centro</h2>
+                        <div class="bg-sipar-green text-white px-2 py-1 rounded-lg text-xs font-bold flex items-center gap-1">
+                            <i class="fa-solid fa-location-arrow"></i> <span id="station-dist">1.2 km</span>
+                        </div>
+                    </div>
+                    <div class="flex items-start gap-2 mb-4">
+                        <i class="fa-solid fa-location-dot text-sipar-gray mt-1 text-sm"></i>
+                        <p id="station-address" class="text-[13px] text-gray-500 font-medium">Calle 14 de Mayo, Luque</p>
+                    </div>
+                    <button class="w-full bg-sipar-green text-white py-3 rounded-full font-bold text-sm shadow-lg shadow-green-500/30 hover:opacity-90 transition">
+                        Ver detalle de sitio
+                    </button>
+                </div>
+
+                <div class="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
+                    <div class="flex items-center gap-2 mb-4">
+                        <div class="w-6 h-6 bg-sipar-lightgray rounded-full flex justify-center items-center text-sipar-green text-xs">
+                            <i class="fa-solid fa-bolt"></i>
+                        </div>
+                        <div>
+                            <p class="text-[15px] font-bold text-sipar-dark leading-none">Cargador S001038</p>
+                            <p class="text-xs text-sipar-gray mt-1">2 Conectores</p>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-3">
+                        <!-- Conector 1 (120kW) -->
+                        <div class="border border-gray-100 rounded-xl overflow-hidden flex flex-col shadow-sm">
+                            <div class="p-3 flex items-center gap-3">
+                                <i class="fa-solid fa-plug text-3xl text-sipar-gray"></i>
+                                <div>
+                                    <p class="text-[13px] font-bold text-sipar-dark leading-none">CCS2</p>
+                                    <div class="flex items-center gap-1.5 mt-1">
+                                        <p class="text-xs text-sipar-gray font-semibold">120 kW</p>
+                                    </div>
+                                    <!-- Aporte: KM por Minuto -->
+                                    <span class="inline-block bg-blue-50 text-sipar-blue text-[9px] px-1.5 py-0.5 rounded font-bold mt-1 border border-blue-100">
+                                        ~12 km/min
+                                    </span>
+                                </div>
+                            </div>
+                            <div class="px-3 pb-3 text-center border-b border-gray-50">
+                                <p class="text-xs font-bold text-sipar-dark">2.500 ₲ kWh</p>
+                            </div>
+                            <div class="bg-green-100 text-green-700 text-xs font-bold text-center py-1.5 flex justify-center items-center gap-1">
+                                <i class="fa-regular fa-circle-check"></i> Disponible
+                            </div>
+                        </div>
+                        <!-- Conector 2 (60kW) -->
+                        <div class="border border-gray-100 rounded-xl overflow-hidden flex flex-col shadow-sm opacity-60">
+                            <div class="p-3 flex items-center gap-3">
+                                <i class="fa-solid fa-plug text-3xl text-sipar-gray"></i>
+                                <div>
+                                    <p class="text-[13px] font-bold text-sipar-dark leading-none">CCS2</p>
+                                    <div class="flex items-center gap-1.5 mt-1">
+                                        <p class="text-xs text-sipar-gray font-semibold">60 kW</p>
+                                    </div>
+                                    <!-- Aporte: KM por Minuto -->
+                                    <span class="inline-block bg-blue-50 text-sipar-blue text-[9px] px-1.5 py-0.5 rounded font-bold mt-1 border border-blue-100">
+                                        ~6 km/min
+                                    </span>
+                                </div>
+                            </div>
+                            <div class="px-3 pb-3 text-center border-b border-gray-50">
+                                <p class="text-xs font-bold text-sipar-dark">2.500 ₲ kWh</p>
+                            </div>
+                            <div class="bg-blue-100 text-sipar-blue text-xs font-bold text-center py-1.5 flex justify-center items-center gap-1">
+                                <i class="fa-solid fa-spinner"></i> En Uso
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="h-24"></div>
+            </div>
+        </div>
+
+        <!-- ============================== -->
+        <!-- VISTA 2: WALLET                -->
+        <!-- ============================== -->
+        <div id="view-wallet" class="w-full h-full absolute top-0 left-0 bg-white z-20 hidden flex-col px-5 pt-16 pb-0">
+            <!-- Tarjeta Negra SIPAR -->
+            <div class="bg-sipar-dark rounded-[24px] p-6 text-white relative overflow-hidden shadow-xl h-[210px] w-full flex-shrink-0 flex flex-col justify-between mb-2">
+                <svg class="absolute bottom-0 right-0 opacity-20" width="160" height="120" viewBox="0 0 160 120" fill="none">
+                    <path d="M0 120 Q 40 40 160 80" stroke="white" stroke-width="1.5" fill="transparent"/>
+                    <path d="M20 120 Q 60 50 160 90" stroke="white" stroke-width="1.5" fill="transparent"/>
+                    <path d="M40 120 Q 80 60 160 100" stroke="white" stroke-width="1.5" fill="transparent"/>
+                    <path d="M60 120 Q 100 70 160 110" stroke="white" stroke-width="1.5" fill="transparent"/>
+                </svg>
+                <div class="flex items-center gap-2 relative z-10">
+                    <i class="fa-solid fa-leaf text-sipar-green text-xl"></i>
+                    <span class="font-bold text-xl tracking-tight">SIPAR</span>
+                </div>
+                <div class="relative z-10 mb-2">
+                    <p class="text-gray-300 text-[15px] font-medium mb-1">Tu balance:</p>
+                    <p class="text-[34px] font-bold">150.000 ₲</p>
+                </div>
+            </div>
+
+            <!-- Botones Flotantes (Azul y Verde) -->
+            <div class="grid grid-cols-2 gap-4 mb-4 mt-6 flex-shrink-0">
+                <button class="bg-gradient-to-br from-sipar-green to-emerald-600 text-white font-bold py-3.5 rounded-[18px] text-[13px] shadow-[0_8px_20px_rgba(16,185,129,0.35)] flex flex-col justify-center items-center gap-1.5">
+                    <i class="fa-solid fa-plus text-lg"></i> Agregar fondos
+                </button>
+                <button class="bg-gradient-to-br from-sipar-blue to-blue-600 text-white font-bold py-3.5 rounded-[18px] text-[13px] shadow-[0_8px_20px_rgba(59,130,246,0.35)] flex flex-col justify-center items-center gap-1.5">
+                    <i class="fa-solid fa-money-bill-transfer text-lg"></i> Transferir saldo
+                </button>
+            </div>
+
+            <!-- Segmented Control -->
+            <div class="bg-[#F1F3F5] rounded-full p-1 flex justify-between mb-4 flex-shrink-0">
+                <button id="tab-all" onclick="filterTransactions('all')" class="flex-1 bg-white text-sipar-green font-bold text-[13px] py-2 rounded-full shadow-sm transition-all">Todos</button>
+                <button id="tab-dep" onclick="filterTransactions('deposits')" class="flex-1 text-[#8E8E93] font-semibold text-[13px] py-2 rounded-full transition-all">Depósitos</button>
+                <button id="tab-char" onclick="filterTransactions('charges')" class="flex-1 text-[#8E8E93] font-semibold text-[13px] py-2 rounded-full transition-all">Cargos</button>
+            </div>
+
+            <!-- Lista de Transacciones -->
+            <div id="transaction-list" class="flex-1 overflow-y-auto pb-28 flex flex-col"></div>
+        </div>
+
+        <!-- ============================== -->
+        <!-- VISTA 3: PERFIL                -->
+        <!-- ============================== -->
+        <div id="view-perfil" class="w-full h-full absolute top-0 left-0 bg-[#F8F9FA] z-20 hidden flex-col px-5 pt-12 pb-0 overflow-y-auto">
+            
+            <!-- Cabecera Usuario -->
+            <div class="flex items-center justify-between mt-4 mb-6 flex-shrink-0">
+                <div class="flex items-center gap-4">
+                    <div class="relative">
+                        <div class="w-20 h-20 bg-sipar-green rounded-full flex justify-center items-center text-white text-4xl shadow-md">
+                            <i class="fa-solid fa-power-off"></i>
+                        </div>
+                        <div class="absolute bottom-0 right-0 w-6 h-6 bg-sipar-dark rounded-full border-2 border-white flex justify-center items-center text-white text-[10px]">
+                            <i class="fa-solid fa-pencil"></i>
+                        </div>
+                    </div>
+                    <div>
+                        <h2 class="text-xl font-bold text-sipar-dark">Steven Groos</h2>
+                        <div class="bg-emerald-100 text-sipar-green px-2 py-1 rounded text-xs font-bold inline-flex items-center gap-1 mt-1">
+                            <i class="fa-regular fa-id-card"></i> ID 3832
+                        </div>
+                    </div>
+                </div>
+                <button class="w-10 h-10 bg-white rounded-full shadow-sm flex justify-center items-center text-sipar-dark border border-gray-100">
+                    <i class="fa-regular fa-bell text-lg"></i>
+                </button>
+            </div>
+
+            <!-- Botones Superiores -->
+            <div class="grid grid-cols-2 gap-4 mb-6 flex-shrink-0">
+                <button class="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 flex flex-col items-center gap-2">
+                    <i class="fa-solid fa-tag text-2xl text-sipar-dark"></i>
+                    <span class="text-[13px] font-semibold text-sipar-dark">Promociones</span>
+                </button>
+                <button class="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 flex flex-col items-center gap-2">
+                    <i class="fa-solid fa-gear text-2xl text-sipar-dark"></i>
+                    <span class="text-[13px] font-semibold text-sipar-dark">Configuración</span>
+                </button>
+            </div>
+
+            <!-- Mis Autos -->
+            <div class="mb-8 flex-shrink-0">
+                <div class="flex justify-between items-center mb-3">
+                    <h3 class="text-lg font-bold text-sipar-dark">Mis autos</h3>
+                    <span class="text-sipar-green text-sm font-bold cursor-pointer">Ver más</span>
+                </div>
+                
+                <div class="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 flex items-center gap-4 mb-3">
+                    <div class="w-12 h-12 bg-emerald-50 rounded-xl flex justify-center items-center text-sipar-green">
+                        <i class="fa-solid fa-car-side text-xl"></i>
+                    </div>
+                    <div class="flex-1">
+                        <h4 class="font-bold text-sipar-dark text-[15px]">BYD Dolphin</h4>
+                        <p class="text-xs text-sipar-gray mt-0.5">Placa: AAA 123 • CCS2</p>
+                    </div>
+                    <i class="fa-solid fa-chevron-right text-gray-300 text-sm"></i>
+                </div>
+                
+                <button class="w-full bg-transparent border-[1.5px] border-sipar-green text-sipar-green py-3.5 rounded-2xl font-bold text-[14px] flex justify-center items-center gap-2 hover:bg-emerald-50 transition">
+                    Agregar otro auto
+                </button>
+            </div>
+
+            <!-- Preferencias -->
+            <div class="mb-28 flex-shrink-0">
+                <h3 class="text-lg font-bold text-sipar-dark mb-3">Preferencias</h3>
+                <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                    
+                    <div class="flex justify-between items-center p-4 border-b border-gray-50 cursor-pointer hover:bg-gray-50">
+                        <div class="flex items-center gap-3">
+                            <div class="w-8 h-8 bg-gray-50 rounded-lg flex justify-center items-center text-sipar-gray"><i class="fa-solid fa-money-check-dollar"></i></div>
+                            <span class="font-semibold text-sipar-dark text-[14px]">Métodos de pago</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span class="text-xs font-bold text-sipar-gray bg-gray-100 px-2 py-1 rounded">Visa ****4092</span>
+                            <i class="fa-solid fa-chevron-right text-gray-300 text-xs"></i>
+                        </div>
+                    </div>
+
+                    <div class="flex justify-between items-center p-4 border-b border-gray-50 cursor-pointer hover:bg-gray-50">
+                        <div class="flex items-center gap-3">
+                            <div class="w-8 h-8 bg-gray-50 rounded-lg flex justify-center items-center text-sipar-gray"><i class="fa-solid fa-file-invoice"></i></div>
+                            <span class="font-semibold text-sipar-dark text-[14px]">Facturación</span>
+                        </div>
+                        <i class="fa-solid fa-chevron-right text-gray-300 text-xs"></i>
+                    </div>
+
+                    <div class="flex justify-between items-center p-4 border-b border-gray-50 cursor-pointer hover:bg-gray-50">
+                        <div class="flex items-center gap-3">
+                            <div class="w-8 h-8 bg-gray-50 rounded-lg flex justify-center items-center text-sipar-gray"><i class="fa-solid fa-key"></i></div>
+                            <span class="font-semibold text-sipar-dark text-[14px]">Código de acceso</span>
+                        </div>
+                        <i class="fa-solid fa-chevron-right text-gray-300 text-xs"></i>
+                    </div>
+
+                    <div class="flex justify-between items-center p-4 border-b border-gray-50 cursor-pointer hover:bg-gray-50">
+                        <div class="flex items-center gap-3">
+                            <div class="w-8 h-8 bg-gray-50 rounded-lg flex justify-center items-center text-sipar-gray"><i class="fa-regular fa-comments"></i></div>
+                            <span class="font-semibold text-sipar-dark text-[14px]">Preguntas frecuentes</span>
+                        </div>
+                        <i class="fa-solid fa-chevron-right text-gray-300 text-xs"></i>
+                    </div>
+                    
+                    <!-- NUEVO: Comentarios y sugerencias -->
+                    <div class="flex justify-between items-center p-4 border-b border-gray-50 cursor-pointer hover:bg-gray-50">
+                        <div class="flex items-center gap-3">
+                            <div class="w-8 h-8 bg-gray-50 rounded-lg flex justify-center items-center text-sipar-gray"><i class="fa-regular fa-comment-dots text-sipar-blue"></i></div>
+                            <span class="font-semibold text-sipar-dark text-[14px]">Comentarios y sugerencias</span>
+                        </div>
+                        <i class="fa-solid fa-chevron-right text-gray-300 text-xs"></i>
+                    </div>
+
+                    <div class="flex justify-between items-center p-4 border-b border-gray-50 cursor-pointer hover:bg-gray-50">
+                        <div class="flex items-center gap-3">
+                            <div class="w-8 h-8 bg-gray-50 rounded-lg flex justify-center items-center text-sipar-gray"><i class="fa-solid fa-circle-info"></i></div>
+                            <span class="font-semibold text-sipar-dark text-[14px]">Información</span>
+                        </div>
+                        <i class="fa-solid fa-chevron-right text-gray-300 text-xs"></i>
+                    </div>
+
+                    <div class="flex justify-between items-center p-4 cursor-pointer hover:bg-red-50">
+                        <div class="flex items-center gap-3">
+                            <div class="w-8 h-8 bg-red-50 rounded-lg flex justify-center items-center text-red-500"><i class="fa-solid fa-arrow-right-from-bracket"></i></div>
+                            <span class="font-semibold text-red-500 text-[14px]">Cerrar sesión</span>
+                        </div>
+                        <i class="fa-solid fa-chevron-right text-red-200 text-xs"></i>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+
+        <!-- ============================== -->
+        <!-- VISTA 4: ACTIVIDAD             -->
+        <!-- ============================== -->
+        <div id="view-actividad" class="w-full h-full absolute top-0 left-0 bg-[#F8F9FA] z-20 hidden flex-col px-5 pt-12 pb-0 overflow-y-auto">
+            <!-- Selector de Tiempo -->
+            <div class="mt-2 mb-6">
+                <button class="bg-white border border-gray-200 px-4 py-2.5 rounded-[14px] text-sipar-dark font-bold text-[13px] shadow-sm flex items-center gap-2 hover:bg-gray-50 transition">
+                    Últimos 30 días <i class="fa-solid fa-chevron-down text-[10px] text-sipar-gray mt-0.5"></i>
+                </button>
+            </div>
+
+            <!-- Gráfico de Consumo -->
+            <h2 class="text-[22px] font-bold text-sipar-dark mb-4 tracking-tight">Consumo de energía del mes</h2>
+            
+            <div class="mb-6">
+                <!-- Barras adaptadas a color Verde -->
+                <div class="flex items-end justify-between h-24 mb-2 gap-1 px-1">
+                    <div class="w-full bg-emerald-100 rounded-t-sm h-[15%]"></div>
+                    <div class="w-full bg-emerald-100 rounded-t-sm h-[30%]"></div>
+                    <div class="w-full bg-sipar-green rounded-t-sm h-[85%] shadow-[0_0_8px_rgba(16,185,129,0.5)]"></div>
+                    <div class="w-full bg-emerald-100 rounded-t-sm h-[20%]"></div>
+                    <div class="w-full bg-emerald-200 rounded-t-sm h-[45%]"></div>
+                    <div class="w-full bg-emerald-100 rounded-t-sm h-[10%]"></div>
+                    <div class="w-full bg-sipar-blue rounded-t-sm h-[60%] shadow-[0_0_8px_rgba(59,130,246,0.5)]"></div>
+                </div>
+                <!-- Eje X -->
+                <div class="flex justify-between text-[11px] text-sipar-gray font-semibold px-2">
+                    <span>1</span><span>5</span><span>10</span><span>15</span><span>20</span><span>25</span><span>30</span>
+                </div>
+            </div>
+
+            <!-- Grilla de Métricas -->
+            <div class="grid grid-cols-2 gap-4 mb-8">
+                <!-- CO2 -->
+                <div class="bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+                    <div class="flex items-center gap-2 text-sipar-gray mb-3">
+                        <div class="w-6 h-6 bg-emerald-50 rounded-full flex justify-center items-center"><i class="fa-solid fa-leaf text-[11px] text-sipar-green"></i></div>
+                        <span class="text-[13px] font-semibold">CO2 Ahorrado</span>
+                    </div>
+                    <p class="text-[22px] font-bold text-sipar-dark leading-none mb-1">45.2 kg</p>
+                    <p class="text-[11px] text-sipar-gray font-medium">Este mes</p>
+                </div>
+                <!-- Energía -->
+                <div class="bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+                    <div class="flex items-center gap-2 text-sipar-gray mb-3">
+                        <div class="w-6 h-6 bg-blue-50 rounded-full flex justify-center items-center"><i class="fa-solid fa-bolt text-[11px] text-sipar-blue"></i></div>
+                        <span class="text-[13px] font-semibold">Energía</span>
+                    </div>
+                    <p class="text-[22px] font-bold text-sipar-dark leading-none mb-1">120.5 kWh</p>
+                    <p class="text-[11px] text-sipar-gray font-medium">Consumo total</p>
+                </div>
+                <!-- Tiempo -->
+                <div class="bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+                    <div class="flex items-center gap-2 text-sipar-gray mb-3">
+                        <div class="w-6 h-6 bg-gray-50 rounded-full flex justify-center items-center"><i class="fa-regular fa-clock text-[11px]"></i></div>
+                        <span class="text-[13px] font-semibold">Tiempo</span>
+                    </div>
+                    <p class="text-[22px] font-bold text-sipar-dark leading-none mb-1">4.5 hrs</p>
+                    <p class="text-[11px] text-sipar-gray font-medium">Tiempo de carga</p>
+                </div>
+                <!-- Sesiones -->
+                <div class="bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+                    <div class="flex items-center gap-2 text-sipar-gray mb-3">
+                        <div class="w-6 h-6 bg-gray-50 rounded-full flex justify-center items-center"><i class="fa-solid fa-plug text-[11px]"></i></div>
+                        <span class="text-[13px] font-semibold">Sesiones</span>
+                    </div>
+                    <p class="text-[22px] font-bold text-sipar-dark leading-none mb-1">8</p>
+                    <p class="text-[11px] text-sipar-gray font-medium">Sesiones activas</p>
+                </div>
+            </div>
+
+            <!-- Desglose -->
+            <div class="mb-28">
+                <h3 class="text-[18px] font-bold text-sipar-dark mb-3">Desglose</h3>
+                <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
+                    <div class="flex justify-between items-center">
+                        <div class="w-3/4">
+                            <p class="text-[15px] font-bold text-sipar-dark">Energía promedio</p>
+                            <p class="text-[12px] text-sipar-gray mt-1 leading-tight">Equivalente a 5.6kg de CO2 ahorrado por cada sesión de carga</p>
+                        </div>
+                        <p class="text-sipar-green font-bold text-[16px]">15.0 kWh</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============================== -->
+        <!-- VISTA 5: TIENDA DE ACCESORIOS  -->
+        <!-- ============================== -->
+        <div id="view-tienda" class="w-full h-full absolute top-0 left-0 bg-[#F8F9FA] z-20 hidden flex-col px-5 pt-12 pb-0 overflow-y-auto">
+            
+            <div class="flex justify-between items-center mt-4 mb-6 flex-shrink-0">
+                <h2 class="text-xl font-bold text-sipar-dark">Accesorios y Servicios</h2>
+                <div class="relative cursor-pointer">
+                    <i class="fa-solid fa-cart-shopping text-sipar-dark text-xl"></i>
+                    <span class="absolute -top-2 -right-2 bg-sipar-green text-white text-[9px] font-bold w-4 h-4 flex items-center justify-center rounded-full border border-white">2</span>
+                </div>
+            </div>
+
+            <!-- Banner Promocional -->
+            <div class="bg-gradient-to-r from-sipar-green to-emerald-400 rounded-2xl p-5 mb-6 flex items-center justify-between text-white shadow-lg flex-shrink-0">
+                <div>
+                    <p class="text-[10px] font-bold uppercase tracking-widest mb-1 opacity-90">Promoción del Mes</p>
+                    <p class="text-lg font-bold leading-tight mb-2">15% de descuento en<br>Adaptadores CCS2</p>
+                    <button class="bg-white text-sipar-green text-[10px] font-bold px-3 py-1.5 rounded-full shadow-sm hover:bg-gray-50 transition">Ver detalle</button>
+                </div>
+                <i class="fa-solid fa-bolt text-5xl opacity-30 mr-2"></i>
+            </div>
+
+            <!-- Filtros -->
+            <div class="flex gap-2 overflow-x-auto hide-scroll mb-6 pb-2 flex-shrink-0">
+                <button class="bg-sipar-dark text-white px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap shadow-sm">Todos</button>
+                <button class="bg-white border border-gray-200 text-sipar-dark px-4 py-2 rounded-full text-xs font-semibold whitespace-nowrap shadow-sm">Adaptadores</button>
+                <button class="bg-white border border-gray-200 text-sipar-dark px-4 py-2 rounded-full text-xs font-semibold whitespace-nowrap shadow-sm">Cargadores de pared</button>
+                <button class="bg-white border border-gray-200 text-sipar-dark px-4 py-2 rounded-full text-xs font-semibold whitespace-nowrap shadow-sm">Servicios</button>
+            </div>
+
+            <!-- Lista de Productos -->
+            <div class="flex flex-col gap-4 mb-28 flex-shrink-0">
+                
+                <!-- Producto 1 -->
+                <div class="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 flex gap-4">
+                    <div class="w-20 h-20 bg-gray-50 rounded-xl flex justify-center items-center flex-shrink-0 border border-gray-100">
+                        <i class="fa-solid fa-plug-circle-bolt text-3xl text-sipar-green"></i>
+                    </div>
+                    <div class="flex flex-col justify-between flex-1">
+                        <div>
+                            <div class="flex justify-between items-start">
+                                <h3 class="font-bold text-sipar-dark text-[14px] leading-tight">Adaptador CCS2 a CHAdeMO</h3>
+                                <i class="fa-regular fa-heart text-gray-300 text-sm cursor-pointer"></i>
+                            </div>
+                            <p class="text-[11px] text-sipar-gray mt-1 flex items-center gap-1"><i class="fa-solid fa-truck-fast text-sipar-blue"></i> Envío gratis</p>
+                        </div>
+                        <div class="flex justify-between items-end mt-2">
+                            <p class="font-bold text-sipar-dark text-[15px]">1.850.000 ₲</p>
+                            <button class="w-8 h-8 bg-sipar-dark text-white rounded-lg flex justify-center items-center shadow-md hover:bg-gray-800 transition">
+                                <i class="fa-solid fa-plus text-sm"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Producto 2 -->
+                <div class="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 flex gap-4">
+                    <div class="w-20 h-20 bg-gray-50 rounded-xl flex justify-center items-center flex-shrink-0 border border-gray-100">
+                        <i class="fa-solid fa-charging-station text-3xl text-sipar-blue"></i>
+                    </div>
+                    <div class="flex flex-col justify-between flex-1">
+                        <div>
+                            <div class="flex justify-between items-start">
+                                <h3 class="font-bold text-sipar-dark text-[14px] leading-tight">Cargador Domiciliario 7kW</h3>
+                                <i class="fa-regular fa-heart text-gray-300 text-sm cursor-pointer"></i>
+                            </div>
+                            <p class="text-[11px] text-sipar-gray mt-1">Instalación básica incluida</p>
+                        </div>
+                        <div class="flex justify-between items-end mt-2">
+                            <p class="font-bold text-sipar-dark text-[15px]">3.200.000 ₲</p>
+                            <button class="w-8 h-8 bg-sipar-dark text-white rounded-lg flex justify-center items-center shadow-md hover:bg-gray-800 transition">
+                                <i class="fa-solid fa-plus text-sm"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Producto 3 (Agotado) -->
+                <div class="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 flex gap-4 opacity-70">
+                    <div class="w-20 h-20 bg-gray-50 rounded-xl flex justify-center items-center flex-shrink-0 border border-gray-100">
+                        <i class="fa-solid fa-car-battery text-3xl text-gray-400"></i>
+                    </div>
+                    <div class="flex flex-col justify-between flex-1">
+                        <div>
+                            <h3 class="font-bold text-gray-600 text-[14px] leading-tight">Inflador Portátil 12V</h3>
+                            <span class="inline-block bg-red-50 text-red-500 text-[9px] font-bold px-1.5 py-0.5 rounded mt-1 border border-red-100">Agotado</span>
+                        </div>
+                        <div class="flex justify-between items-end mt-2">
+                            <p class="font-bold text-gray-500 text-[15px]">350.000 ₲</p>
+                            <button class="w-8 h-8 bg-gray-200 text-gray-400 rounded-lg flex justify-center items-center cursor-not-allowed">
+                                <i class="fa-solid fa-plus text-sm"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- ============================== -->
+        <!-- NAVEGACIÓN INFERIOR FLOTANTE   -->
+        <!-- ============================== -->
+        <nav class="absolute bottom-6 left-4 right-4 bg-white h-[70px] rounded-full shadow-floating z-50 flex justify-around items-center px-2 border border-gray-100">
+            <!-- 5 Botones para el menú -->
+            <div id="nav-inicio" onclick="switchTab('inicio')" class="flex flex-col items-center text-sipar-green cursor-pointer transition w-12">
+                <i class="fa-solid fa-map text-xl mb-1"></i>
+                <span class="text-[9px] font-bold">Inicio</span>
+            </div>
+            <div id="nav-wallet" onclick="switchTab('wallet')" class="flex flex-col items-center text-sipar-gray hover:text-sipar-dark cursor-pointer transition w-12">
+                <i class="fa-solid fa-wallet text-xl mb-1"></i>
+                <span class="text-[9px] font-bold">Wallet</span>
+            </div>
+            <!-- Nuevo Botón Tienda -->
+            <div id="nav-tienda" onclick="switchTab('tienda')" class="flex flex-col items-center text-sipar-gray hover:text-sipar-dark cursor-pointer transition w-12 relative">
+                <i class="fa-solid fa-shop text-xl mb-1"></i>
+                <span class="text-[9px] font-bold">Tienda</span>
+                <span class="absolute top-0 right-1 w-2 h-2 bg-sipar-blue rounded-full border border-white"></span>
+            </div>
+            <div id="nav-actividad" onclick="switchTab('actividad')" class="flex flex-col items-center text-sipar-gray hover:text-sipar-dark cursor-pointer transition w-12">
+                <i class="fa-solid fa-chart-line text-xl mb-1"></i>
+                <span class="text-[9px] font-bold">Actividad</span>
+            </div>
+            <div id="nav-perfil" onclick="switchTab('perfil')" class="flex flex-col items-center text-sipar-gray hover:text-sipar-dark cursor-pointer transition w-12">
+                <i class="fa-solid fa-user text-xl mb-1"></i>
+                <span class="text-[9px] font-bold">Perfil</span>
+            </div>
+        </nav>
+
+    </div>
+
+    <!-- Leaflet JS & Scripts -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        // MAPA
+        const centerPos = [-25.2667, -57.4833];
+        var map = L.map('map', { zoomControl: false, attributionControl: false }).setView(centerPos, 14);
+        
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', { maxZoom: 19 }).addTo(map);
+
+        function createMarker(available, total) {
+            return L.divIcon({
+                className: 'bg-transparent',
+                html: `<div class="evergo-marker"><i class="fa-solid fa-bolt"></i> ${available}/${total}</div>`,
+                iconSize: [45, 25], iconAnchor: [22, 25]
+            });
+        }
+
+        const chargers = [
+            { lat: -25.2667, lng: -57.4833, name: "SIPAR Luque Centro", address: "Calle 14 de Mayo, Luque", dist: "1.2 km", avail: 2, total: 2 },
+            { lat: -25.2750, lng: -57.4950, name: "SIPAR Conmebol", address: "Av. Sudamericana, Luque", dist: "3.8 km", avail: 1, total: 2 }
+        ];
+
+        chargers.forEach(ch => {
+            let marker = L.marker([ch.lat, ch.lng], {icon: createMarker(ch.avail, ch.total)}).addTo(map);
+            marker.on('click', () => {
+                document.getElementById('station-name').innerText = ch.name;
+                document.getElementById('station-address').innerText = ch.address;
+                document.getElementById('station-dist').innerText = ch.dist;
+                document.getElementById('station-sheet').classList.add('active');
+                map.flyTo([ch.lat - 0.008, ch.lng], 15, { duration: 0.5 });
+            });
+        });
+
+        function closeSheet() { document.getElementById('station-sheet').classList.remove('active'); }
+        function centerMap() { map.flyTo(centerPos, 14, { duration: 0.8 }); closeSheet(); }
+        map.on('click', closeSheet);
+
+        // WALLET - Transacciones
+        const transactions = [
+            { id: 1, type: 'charge', title: 'Carga - SIPAR Luque Centro', date: '06 Sep 2026, 14:30 hs', amount: -25500 },
+            { id: 2, type: 'deposit', title: 'Recarga - Visa ****4092', date: '05 Sep 2026, 10:15 hs', amount: 100000 },
+            { id: 3, type: 'charge', title: 'Carga - SIPAR Conmebol', date: '02 Sep 2026, 18:45 hs', amount: -42000 },
+            { id: 4, type: 'deposit', title: 'Recarga - Pago Móvil', date: '01 Sep 2026, 09:00 hs', amount: 50000 }
+        ];
+
+        function filterTransactions(filterType) {
+            const activeClass = "flex-1 bg-white text-sipar-green font-bold text-[13px] py-2 rounded-full shadow-sm transition-all";
+            const inactiveClass = "flex-1 text-[#8E8E93] font-semibold text-[13px] py-2 rounded-full transition-all";
+            
+            document.getElementById('tab-all').className = inactiveClass;
+            document.getElementById('tab-dep').className = inactiveClass;
+            document.getElementById('tab-char').className = inactiveClass;
+
+            if (filterType === 'all') document.getElementById('tab-all').className = activeClass;
+            if (filterType === 'deposits') document.getElementById('tab-dep').className = activeClass;
+            if (filterType === 'charges') document.getElementById('tab-char').className = activeClass;
+
+            const list = document.getElementById('transaction-list');
+            list.innerHTML = ''; 
+
+            const filteredData = transactions.filter(t => {
+                if (filterType === 'all') return true;
+                if (filterType === 'deposits') return t.amount > 0;
+                if (filterType === 'charges') return t.amount < 0;
+            });
+
+            filteredData.forEach(t => {
+                const isCharge = t.amount < 0;
+                const iconClass = isCharge ? 'fa-bolt text-sipar-green' : 'fa-arrow-down text-blue-500';
+                const bgClass = isCharge ? 'bg-emerald-50' : 'bg-blue-50';
+                const amountColor = isCharge ? 'text-sipar-dark' : 'text-blue-600';
+                
+                let formattedAmount = Math.abs(t.amount).toLocaleString('es-PY') + ' ₲';
+                formattedAmount = isCharge ? `- ${formattedAmount}` : `+ ${formattedAmount}`;
+
+                const itemHTML = `
+                    <div class="flex justify-between items-center bg-white p-3.5 rounded-[18px] border border-gray-100 shadow-[0_4px_12px_rgba(0,0,0,0.03)] mb-3 flex-shrink-0">
+                        <div class="flex items-center gap-3">
+                            <div class="w-11 h-11 ${bgClass} rounded-full flex justify-center items-center"><i class="fa-solid ${iconClass}"></i></div>
+                            <div>
+                                <p class="text-[14px] font-bold text-sipar-dark leading-tight">${t.title}</p>
+                                <p class="text-[12px] text-sipar-gray mt-0.5">${t.date}</p>
+                            </div>
+                        </div>
+                        <p class="text-[14px] font-bold ${amountColor}">${formattedAmount}</p>
+                    </div>`;
+                list.insertAdjacentHTML('beforeend', itemHTML);
+            });
+        }
+        filterTransactions('all');
+
+        // NAVEGACIÓN (Controla las 5 vistas)
+        function switchTab(tab) {
+            const views = {
+                'inicio': document.getElementById('view-inicio'),
+                'wallet': document.getElementById('view-wallet'),
+                'perfil': document.getElementById('view-perfil'),
+                'actividad': document.getElementById('view-actividad'),
+                'tienda': document.getElementById('view-tienda')
+            };
+            
+            const navs = {
+                'inicio': document.getElementById('nav-inicio'),
+                'wallet': document.getElementById('nav-wallet'),
+                'perfil': document.getElementById('nav-perfil'),
+                'actividad': document.getElementById('nav-actividad'),
+                'tienda': document.getElementById('nav-tienda')
+            };
+
+            // Resetear todos los estilos y ocultar vistas
+            Object.values(views).forEach(v => {
+                v.classList.add('hidden');
+                if(v.id !== 'view-inicio') v.classList.remove('flex');
+            });
+            Object.values(navs).forEach(n => n.classList.replace('text-sipar-green', 'text-sipar-gray'));
+
+            // Activar la vista seleccionada
+            if (tab === 'inicio') {
+                views[tab].classList.remove('hidden');
+                setTimeout(() => map.invalidateSize(), 100);
+            } else {
+                views[tab].classList.remove('hidden');
+                views[tab].classList.add('flex');
+                closeSheet(); 
+            }
+            
+            // Colorear el icono activo en el navbar
+            navs[tab].classList.replace('text-sipar-gray', 'text-sipar-green');
+        }
+    </script>
+</body>
+</html>

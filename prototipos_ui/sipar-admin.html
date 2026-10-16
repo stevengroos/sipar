@@ -1,0 +1,1870 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SIPAR Admin - CPMS Dashboard</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Leaflet CSS (Mapas) -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        sipar: {
+                            dark: '#1E232D',
+                            orange: '#FF9E00',
+                            light: '#F8F9FA',
+                            gray: '#8E8E93',
+                            border: '#E5E7EB'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #F8F9FA; margin: 0; }
+        .hide-scroll::-webkit-scrollbar { display: none; }
+        
+        /* Animación suave para los Modals */
+        @keyframes fadeIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+        .modal-animate { animation: fadeIn 0.15s ease-out forwards; }
+        
+        /* Toggle Switch Custom */
+        .toggle-checkbox:checked { right: 0; border-color: #FF9E00; }
+        .toggle-checkbox:checked + .toggle-label { background-color: #FF9E00; }
+
+        /* Custom marker styling for Admin map */
+        .admin-marker {
+            background-color: #1E232D;
+            border: 2px solid #FF9E00;
+            border-radius: 8px;
+            padding: 4px 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+            font-size: 12px;
+            font-weight: 700;
+            color: #fff;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+            position: relative;
+            white-space: nowrap;
+        }
+        .admin-marker::after {
+            content: '';
+            position: absolute;
+            bottom: -6px;
+            left: 50%;
+            transform: translateX(-50%);
+            border-width: 6px 6px 0;
+            border-style: solid;
+            border-color: #FF9E00 transparent transparent transparent;
+        }
+        .leaflet-popup-content-wrapper { border-radius: 12px; padding: 0; overflow: hidden; border: 1px solid #E5E7EB; }
+        .leaflet-popup-content { margin: 0; width: 250px !important; }
+        .leaflet-popup-tip { display: none; }
+    </style>
+</head>
+<body class="flex h-screen overflow-hidden">
+
+    <!-- ============================== -->
+    <!-- SIDEBAR (MENÚ LATERAL)         -->
+    <!-- ============================== -->
+    <aside class="w-64 bg-sipar-dark text-white flex flex-col h-full shadow-2xl z-20 flex-shrink-0">
+        <div class="h-20 flex items-center px-6 border-b border-gray-700/50">
+            <i data-lucide="hard-hat" class="text-sipar-orange mr-3"></i>
+            <span class="text-2xl font-bold tracking-tight">SIPAR<span class="text-sipar-orange">.</span></span>
+            <span class="ml-2 text-[10px] bg-gray-700 px-2 py-0.5 rounded text-gray-300 font-bold tracking-wider mt-1">ADMIN</span>
+        </div>
+
+        <nav class="flex-1 overflow-y-auto py-6 px-3 flex flex-col gap-1 hide-scroll">
+            <p class="px-3 text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2">Principal</p>
+            
+            <button onclick="switchTab('dashboard')" id="nav-dashboard" class="flex items-center gap-3 w-full px-3 py-2.5 bg-sipar-orange text-white rounded-lg font-semibold transition">
+                <i data-lucide="layout-dashboard" class="w-5 h-5"></i> Dashboard en Vivo
+            </button>
+            <button onclick="switchTab('cargadores')" id="nav-cargadores" class="flex items-center gap-3 w-full px-3 py-2.5 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg font-medium transition">
+                <i data-lucide="zap" class="w-5 h-5"></i> Red de Cargadores
+            </button>
+            <button onclick="switchTab('usuarios')" id="nav-usuarios" class="flex items-center gap-3 w-full px-3 py-2.5 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg font-medium transition">
+                <i data-lucide="users" class="w-5 h-5"></i> Usuarios & Flota
+            </button>
+            <button onclick="switchTab('finanzas')" id="nav-finanzas" class="flex items-center gap-3 w-full px-3 py-2.5 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg font-medium transition">
+                <i data-lucide="wallet" class="w-5 h-5"></i> Finanzas & Billeteras
+            </button>
+
+            <p class="px-3 text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2 mt-6">Administración</p>
+
+            <button onclick="switchTab('parametros')" id="nav-parametros" class="flex items-center gap-3 w-full px-3 py-2.5 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg font-medium transition">
+                <i data-lucide="sliders-horizontal" class="w-5 h-5"></i> Tarifas & Parámetros
+            </button>
+            <button onclick="switchTab('tienda')" id="nav-tienda" class="flex items-center gap-3 w-full px-3 py-2.5 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg font-medium transition">
+                <i data-lucide="shopping-bag" class="w-5 h-5"></i> Tienda Accesorios
+            </button>
+            <button onclick="switchTab('configuracion')" id="nav-configuracion" class="flex items-center gap-3 w-full px-3 py-2.5 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg font-medium transition">
+                <i data-lucide="settings" class="w-5 h-5"></i> Configuración
+            </button>
+        </nav>
+
+        <div class="p-4 border-t border-gray-700/50">
+            <div class="flex items-center gap-3 bg-gray-800 p-3 rounded-xl cursor-pointer hover:bg-gray-700 transition">
+                <div class="w-10 h-10 bg-sipar-orange rounded-full flex justify-center items-center text-white font-bold">SG</div>
+                <div class="flex-1">
+                    <p class="text-sm font-bold text-white leading-tight">Steven Groos</p>
+                    <p class="text-xs text-gray-400">Super Admin</p>
+                </div>
+                <i data-lucide="log-out" class="w-4 h-4 text-gray-400"></i>
+            </div>
+        </div>
+    </aside>
+
+    <!-- ============================== -->
+    <!-- MAIN CONTENT AREA              -->
+    <!-- ============================== -->
+    <main class="flex-1 flex flex-col h-full relative overflow-hidden bg-[#F8F9FA]">
+        
+        <!-- Header Superior con Campana Interactiva -->
+        <header class="h-20 bg-white shadow-sm flex items-center justify-between px-8 z-10 flex-shrink-0">
+            <div class="flex items-center gap-4">
+                <h1 id="header-title" class="text-2xl font-bold text-sipar-dark">Centro de Operaciones</h1>
+                <div class="flex items-center gap-2 bg-green-50 text-green-600 px-3 py-1 rounded-full text-[11px] font-bold border border-green-100">
+                    <span class="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></span> Sistema en línea (OCPP)
+                </div>
+            </div>
+            
+            <div class="flex items-center gap-6">
+                <!-- Dropdown Campana -->
+                <div class="relative">
+                    <div onclick="toggleNotificaciones()" class="bg-gray-50 rounded-full p-2.5 text-gray-500 hover:text-sipar-orange cursor-pointer transition relative">
+                        <i data-lucide="bell" class="w-5 h-5"></i>
+                        <span class="absolute top-1 right-1 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-white"></span>
+                    </div>
+                    
+                    <!-- Panel Notificaciones (Oculto) -->
+                    <div id="panel-notificaciones" class="absolute right-0 mt-2 w-80 bg-white rounded-[16px] shadow-xl border border-gray-100 hidden flex-col z-50 overflow-hidden">
+                        <div class="px-4 py-3 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+                            <h3 class="text-xs font-bold text-sipar-dark">Notificaciones (3 Nuevas)</h3>
+                            <button class="text-[10px] font-bold text-sipar-orange hover:underline">Marcar leídas</button>
+                        </div>
+                        <div class="max-h-80 overflow-y-auto">
+                            <!-- Notificación 1 -->
+                            <div class="p-4 border-b border-gray-50 hover:bg-gray-50 transition cursor-pointer flex gap-3">
+                                <div class="w-8 h-8 rounded-full bg-red-50 text-red-500 flex justify-center items-center flex-shrink-0"><i data-lucide="wifi-off" class="w-4 h-4"></i></div>
+                                <div>
+                                    <p class="text-[13px] font-bold text-sipar-dark">Cargador Desconectado</p>
+                                    <p class="text-[11px] text-gray-500 mt-0.5">SIPAR Aeropuerto (S001040) perdió conexión OCPP.</p>
+                                    <p class="text-[10px] text-gray-400 mt-1">Hace 2 min</p>
+                                </div>
+                            </div>
+                            <!-- Notificación 2 -->
+                            <div class="p-4 border-b border-gray-50 hover:bg-gray-50 transition cursor-pointer flex gap-3">
+                                <div class="w-8 h-8 rounded-full bg-yellow-50 text-yellow-600 flex justify-center items-center flex-shrink-0"><i data-lucide="alert-circle" class="w-4 h-4"></i></div>
+                                <div>
+                                    <p class="text-[13px] font-bold text-sipar-dark">Nueva Disputa Financiera</p>
+                                    <p class="text-[11px] text-gray-500 mt-0.5">Juan Pérez inició reclamo en TRX-98237.</p>
+                                    <p class="text-[10px] text-gray-400 mt-1">Hace 15 min</p>
+                                </div>
+                            </div>
+                            <!-- Notificación 3 -->
+                            <div class="p-4 hover:bg-gray-50 transition cursor-pointer flex gap-3">
+                                <div class="w-8 h-8 rounded-full bg-orange-50 text-sipar-orange flex justify-center items-center flex-shrink-0"><i data-lucide="package" class="w-4 h-4"></i></div>
+                                <div>
+                                    <p class="text-[13px] font-bold text-sipar-dark">Stock Crítico</p>
+                                    <p class="text-[11px] text-gray-500 mt-0.5">El Inflador Portátil 12V se ha agotado en la tienda.</p>
+                                    <p class="text-[10px] text-gray-400 mt-1">Hace 1 hora</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="text-right border-l pl-6 border-gray-100">
+                    <p class="text-sm font-bold text-sipar-dark">17 Sep 2026</p>
+                    <p class="text-xs text-gray-500 mt-0.5">10:45 AM - Luque, PY</p>
+                </div>
+            </div>
+        </header>
+
+        <div class="flex-1 overflow-y-auto p-8 hide-scroll" onclick="cerrarPanelNotificaciones()">
+
+            <!-- ============================== -->
+            <!-- VISTA 1: DASHBOARD EN VIVO     -->
+            <!-- ============================== -->
+            <div id="view-dashboard" class="block">
+                
+                <!-- Tarjetas KPI -->
+                <div class="grid grid-cols-4 gap-6 mb-8">
+                    <div class="bg-white rounded-[20px] p-6 shadow-[0_2px_15px_rgba(0,0,0,0.03)] border border-gray-100 flex items-center justify-between">
+                        <div>
+                            <p class="text-[13px] font-semibold text-gray-500 mb-1">Recaudación (Mes)</p>
+                            <p class="text-[26px] font-bold text-sipar-dark tracking-tight">12.250.000 ₲</p>
+                            <p class="text-[11px] text-green-500 font-bold mt-2 flex items-center gap-1"><i data-lucide="trending-up" class="w-3 h-3"></i> +12% vs mes anterior</p>
+                        </div>
+                        <div class="w-12 h-12 bg-green-50/50 rounded-xl flex justify-center items-center text-green-500 border border-green-50">
+                            <i data-lucide="banknote" class="w-6 h-6"></i>
+                        </div>
+                    </div>
+                    <div class="bg-white rounded-[20px] p-6 shadow-[0_2px_15px_rgba(0,0,0,0.03)] border border-gray-100 flex items-center justify-between">
+                        <div>
+                            <p class="text-[13px] font-semibold text-gray-500 mb-1">Energía Entregada</p>
+                            <p class="text-[26px] font-bold text-sipar-dark tracking-tight">4.500 kWh</p>
+                            <p class="text-[11px] text-sipar-orange font-bold mt-2 flex items-center gap-1"><i data-lucide="zap" class="w-3 h-3"></i> Potencia actual: 80kW</p>
+                        </div>
+                        <div class="w-12 h-12 bg-orange-50/50 rounded-xl flex justify-center items-center text-sipar-orange border border-orange-50">
+                            <i data-lucide="battery-charging" class="w-6 h-6"></i>
+                        </div>
+                    </div>
+                    
+                    <!-- Tarjeta: CO2 Ahorrado -->
+                    <div class="bg-white rounded-[20px] p-6 shadow-[0_2px_15px_rgba(0,0,0,0.03)] border border-gray-100 flex items-center justify-between">
+                        <div>
+                            <p class="text-[13px] font-semibold text-gray-500 mb-1">Impacto Ecológico</p>
+                            <p class="text-[26px] font-bold text-green-600 tracking-tight">1.250 Kg</p>
+                            <p class="text-[11px] text-gray-500 font-semibold mt-2">De CO2 ahorrado (Mes)</p>
+                        </div>
+                        <div class="w-12 h-12 bg-green-50/50 rounded-xl flex justify-center items-center text-green-600 border border-green-50">
+                            <i data-lucide="leaf" class="w-6 h-6"></i>
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-[20px] p-6 shadow-[0_2px_15px_rgba(0,0,0,0.03)] border border-gray-100 flex items-center justify-between">
+                        <div>
+                            <p class="text-[13px] font-semibold text-gray-500 mb-1">Usuarios Registrados</p>
+                            <p class="text-[26px] font-bold text-sipar-dark tracking-tight">342</p>
+                            <p class="text-[11px] text-gray-500 font-semibold mt-2">En la billetera virtual</p>
+                        </div>
+                        <div class="w-12 h-12 bg-gray-50 rounded-xl flex justify-center items-center text-gray-500 border border-gray-100">
+                            <i data-lucide="users" class="w-6 h-6"></i>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-3 gap-6">
+                    
+                    <!-- Mapa de Infraestructura -->
+                    <div class="col-span-2 bg-white rounded-[20px] shadow-[0_2px_15px_rgba(0,0,0,0.03)] border border-gray-100 overflow-hidden flex flex-col h-[650px]">
+                        <div class="px-7 py-5 border-b border-gray-50 bg-white flex justify-between items-center">
+                            <h2 class="text-[15px] font-bold text-sipar-dark flex items-center gap-2">
+                                <i data-lucide="map-pin" class="w-4 h-4 text-sipar-orange"></i> Mapa de Red en Vivo
+                            </h2>
+                            <div class="flex items-center gap-3">
+                                <span class="flex items-center gap-1.5 text-[11px] font-semibold text-gray-500"><div class="w-2 h-2 rounded-full bg-green-500"></div> Disponible</span>
+                                <span class="flex items-center gap-1.5 text-[11px] font-semibold text-gray-500"><div class="w-2 h-2 rounded-full bg-blue-500"></div> En Uso</span>
+                                <span class="flex items-center gap-1.5 text-[11px] font-semibold text-gray-500"><div class="w-2 h-2 rounded-full bg-red-500"></div> Fuera de Línea</span>
+                            </div>
+                        </div>
+                        <div id="admin-map" class="w-full flex-1 z-0 relative"></div>
+                    </div>
+
+                    <!-- Columna Derecha (Leaderboard + Transacciones) -->
+                    <div class="flex flex-col gap-6 h-[650px]">
+                        
+                        <!-- Ranking de Conductores -->
+                        <div class="bg-white rounded-[20px] shadow-[0_2px_15px_rgba(0,0,0,0.03)] border border-gray-100 flex flex-col flex-1 min-h-0">
+                            <div class="px-6 py-4 border-b border-gray-50 bg-white flex justify-between items-center flex-shrink-0">
+                                <h2 class="text-[14px] font-bold text-sipar-dark flex items-center gap-2">
+                                    <i data-lucide="trophy" class="w-4 h-4 text-yellow-500"></i> Top Conductores
+                                </h2>
+                                <span class="text-[9px] bg-gray-100 text-gray-500 px-2 py-1 rounded font-bold">Este Mes</span>
+                            </div>
+                            <div class="px-6 py-4 flex-1 overflow-y-auto hide-scroll">
+                                <!-- Puesto 1 -->
+                                <div class="flex justify-between items-center mb-4 pb-4 border-b border-gray-50 relative">
+                                    <div class="absolute -left-3 -top-3 w-5 h-5 bg-yellow-100 text-yellow-600 rounded-full flex items-center justify-center text-[9px] font-bold border border-yellow-200">#1</div>
+                                    <div class="flex items-center gap-3 ml-2">
+                                        <div class="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center text-gray-500"><i data-lucide="user" class="w-4 h-4"></i></div>
+                                        <div>
+                                            <p class="font-bold text-[12px] text-sipar-dark">Carlos Medina</p>
+                                            <p class="text-[10px] text-gray-500 mt-0.5">Volvo XC40</p>
+                                        </div>
+                                    </div>
+                                    <div class="text-right">
+                                        <p class="font-bold text-sipar-orange text-[13px]">320 kWh</p>
+                                        <p class="text-[9px] text-green-600 mt-0.5 flex items-center gap-1 justify-end"><i data-lucide="leaf" class="w-3 h-3"></i> 45 Kg CO2</p>
+                                    </div>
+                                </div>
+                                <!-- Puesto 2 -->
+                                <div class="flex justify-between items-center mb-4 pb-4 border-b border-gray-50 relative">
+                                    <div class="absolute -left-3 -top-3 w-5 h-5 bg-gray-100 text-gray-500 rounded-full flex items-center justify-center text-[9px] font-bold border border-gray-200">#2</div>
+                                    <div class="flex items-center gap-3 ml-2">
+                                        <div class="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center text-gray-500"><i data-lucide="user" class="w-4 h-4"></i></div>
+                                        <div>
+                                            <p class="font-bold text-[12px] text-sipar-dark">Juan Pérez</p>
+                                            <p class="text-[10px] text-gray-500 mt-0.5">BYD Dolphin</p>
+                                        </div>
+                                    </div>
+                                    <div class="text-right">
+                                        <p class="font-bold text-sipar-orange text-[13px]">185 kWh</p>
+                                        <p class="text-[9px] text-green-600 mt-0.5 flex items-center gap-1 justify-end"><i data-lucide="leaf" class="w-3 h-3"></i> 26 Kg CO2</p>
+                                    </div>
+                                </div>
+                                <!-- Puesto 3 -->
+                                <div class="flex justify-between items-center relative">
+                                    <div class="absolute -left-3 -top-3 w-5 h-5 bg-orange-50 text-orange-600 rounded-full flex items-center justify-center text-[9px] font-bold border border-orange-200">#3</div>
+                                    <div class="flex items-center gap-3 ml-2">
+                                        <div class="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center text-gray-500"><i data-lucide="user" class="w-4 h-4"></i></div>
+                                        <div>
+                                            <p class="font-bold text-[12px] text-sipar-dark">María González</p>
+                                            <p class="text-[10px] text-gray-500 mt-0.5">Nissan Leaf</p>
+                                        </div>
+                                    </div>
+                                    <div class="text-right">
+                                        <p class="font-bold text-sipar-orange text-[13px]">95 kWh</p>
+                                        <p class="text-[9px] text-green-600 mt-0.5 flex items-center gap-1 justify-end"><i data-lucide="leaf" class="w-3 h-3"></i> 13 Kg CO2</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Transacciones -->
+                        <div class="bg-white rounded-[20px] shadow-[0_2px_15px_rgba(0,0,0,0.03)] border border-gray-100 flex flex-col flex-1 min-h-0">
+                            <div class="px-6 py-4 border-b border-gray-50 bg-white flex justify-between items-center flex-shrink-0">
+                                <h2 class="text-[14px] font-bold text-sipar-dark flex items-center gap-2">
+                                    <i data-lucide="activity" class="w-4 h-4 text-sipar-orange"></i> Transacciones
+                                </h2>
+                                <span class="text-[9px] text-gray-400 hover:text-sipar-orange cursor-pointer font-bold">Ver Todas</span>
+                            </div>
+                            <div class="px-6 py-4 flex-1 overflow-y-auto hide-scroll">
+                                <div class="flex justify-between items-center mb-4 pb-4 border-b border-gray-50">
+                                    <div>
+                                        <p class="font-bold text-[12px] text-sipar-dark">Carlos Medina</p>
+                                        <p class="text-[10px] text-gray-500 mt-0.5">Hace 5 min • Luque Centro</p>
+                                    </div>
+                                    <div class="text-right">
+                                        <p class="font-bold text-green-500 text-[13px]">+ 45.000 ₲</p>
+                                        <p class="text-[10px] text-gray-500 mt-0.5">18.0 kWh</p>
+                                    </div>
+                                </div>
+                                <div class="flex justify-between items-center mb-4 pb-4 border-b border-gray-50">
+                                    <div>
+                                        <p class="font-bold text-[12px] text-sipar-dark">Juan Pérez</p>
+                                        <p class="text-[10px] text-gray-500 mt-0.5">Hace 1 hora • Conmebol</p>
+                                    </div>
+                                    <div class="text-right">
+                                        <p class="font-bold text-green-500 text-[13px]">+ 85.000 ₲</p>
+                                        <p class="text-[10px] text-gray-500 mt-0.5">34.0 kWh</p>
+                                    </div>
+                                </div>
+                                <div class="flex justify-between items-center">
+                                    <div>
+                                        <p class="font-bold text-[12px] text-sipar-dark">Recarga Billetera</p>
+                                        <p class="text-[10px] text-gray-500 mt-0.5">Ayer • Bancard</p>
+                                    </div>
+                                    <div class="text-right">
+                                        <p class="font-bold text-blue-500 text-[13px]">+ 150.000 ₲</p>
+                                        <p class="text-[10px] text-gray-500 mt-0.5">Ingreso de Fondos</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+
+            <!-- ============================== -->
+            <!-- VISTA 2: RED DE CARGADORES     -->
+            <!-- ============================== -->
+            <div id="view-cargadores" class="hidden">
+                <div class="w-full bg-white rounded-[20px] shadow-[0_2px_15px_rgba(0,0,0,0.03)] border border-gray-100 overflow-hidden flex flex-col">
+                    <div class="bg-sipar-dark px-6 py-5 border-b border-gray-800 flex justify-between items-center">
+                        <h2 class="text-lg font-bold text-white flex items-center gap-2">
+                            <i data-lucide="zap" class="w-5 h-5 text-sipar-orange"></i> Inventario de Estaciones
+                        </h2>
+                        <div class="flex items-center gap-4">
+                            <div class="bg-gray-800 rounded-lg px-3 py-2 flex items-center gap-2 border border-gray-700">
+                                <i data-lucide="search" class="w-4 h-4 text-gray-400"></i>
+                                <input type="text" placeholder="Buscar por ID..." class="bg-transparent border-none text-sm text-white focus:outline-none placeholder-gray-500 w-48">
+                            </div>
+                            <button onclick="openModal('modal-nuevo')" class="bg-sipar-orange hover:bg-orange-600 text-white px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2 shadow-lg transition">
+                                <i data-lucide="plus-circle" class="w-4 h-4"></i> Nuevo Cargador
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="p-0 overflow-hidden">
+                        <table class="w-full text-left border-collapse">
+                            <thead>
+                                <tr class="bg-gray-50 border-b border-gray-100">
+                                    <th class="px-6 py-4 text-[11px] uppercase font-bold text-gray-500 tracking-wider">Estación & ID</th>
+                                    <th class="px-6 py-4 text-[11px] uppercase font-bold text-gray-500 tracking-wider">Ubicación</th>
+                                    <th class="px-6 py-4 text-[11px] uppercase font-bold text-gray-500 tracking-wider">Conectores</th>
+                                    <th class="px-6 py-4 text-[11px] uppercase font-bold text-gray-500 tracking-wider">Estado de Red</th>
+                                    <th class="px-6 py-4 text-[11px] uppercase font-bold text-gray-500 tracking-wider text-right">Acción</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr class="border-b border-gray-50 hover:bg-gray-50 transition">
+                                    <td class="px-6 py-4">
+                                        <p class="font-bold text-[13px] text-sipar-dark">SIPAR Luque Centro</p>
+                                        <p class="text-[11px] text-gray-500 mt-1 font-mono">OCPP: S001038</p>
+                                    </td>
+                                    <td class="px-6 py-4 text-[13px] text-gray-600">Calle 14 de Mayo</td>
+                                    <td class="px-6 py-4 text-[13px] font-semibold text-sipar-dark">2x CCS2 (120 kW)</td>
+                                    <td class="px-6 py-4">
+                                        <span class="bg-green-100 text-green-700 px-2.5 py-1 rounded-full text-[11px] font-bold flex items-center w-max gap-1.5">
+                                            <div class="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></div> En línea
+                                        </span>
+                                    </td>
+                                    <td class="px-6 py-4 text-right">
+                                        <button onclick="openModal('modal-detalles')" class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 text-sipar-dark rounded-lg text-xs font-bold hover:bg-gray-50 hover:text-sipar-orange shadow-sm transition">
+                                            <i data-lucide="eye" class="w-3.5 h-3.5"></i> Detalles
+                                        </button>
+                                    </td>
+                                </tr>
+                                <tr class="border-b border-gray-50 hover:bg-gray-50 transition">
+                                    <td class="px-6 py-4">
+                                        <p class="font-bold text-[13px] text-sipar-dark">SIPAR Conmebol</p>
+                                        <p class="text-[11px] text-gray-500 mt-1 font-mono">OCPP: S001039</p>
+                                    </td>
+                                    <td class="px-6 py-4 text-[13px] text-gray-600">Av. Sudamericana</td>
+                                    <td class="px-6 py-4 text-[13px] font-semibold text-sipar-dark">2x CCS2 (60 kW)</td>
+                                    <td class="px-6 py-4">
+                                        <span class="bg-green-100 text-green-700 px-2.5 py-1 rounded-full text-[11px] font-bold flex items-center w-max gap-1.5">
+                                            <div class="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></div> En línea
+                                        </span>
+                                    </td>
+                                    <td class="px-6 py-4 text-right">
+                                        <button onclick="openModal('modal-detalles')" class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 text-sipar-dark rounded-lg text-xs font-bold hover:bg-gray-50 hover:text-sipar-orange shadow-sm transition">
+                                            <i data-lucide="eye" class="w-3.5 h-3.5"></i> Detalles
+                                        </button>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ============================== -->
+            <!-- VISTA 3: USUARIOS & FLOTA      -->
+            <!-- ============================== -->
+            <div id="view-usuarios" class="hidden">
+                <div class="grid grid-cols-2 gap-8 items-start">
+                    <!-- EQUIPO INTERNO -->
+                    <div class="w-full bg-white rounded-[20px] shadow-[0_2px_15px_rgba(0,0,0,0.03)] border border-gray-100 overflow-hidden flex flex-col">
+                        <div class="px-6 py-5 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+                            <h2 class="text-[15px] font-bold text-sipar-dark flex items-center gap-2">
+                                <i data-lucide="shield-check" class="w-4 h-4 text-sipar-orange"></i> Equipo Interno (Admin)
+                            </h2>
+                            <button class="bg-sipar-dark hover:bg-gray-800 text-white px-3 py-1.5 rounded-lg font-bold text-xs flex items-center gap-2 transition shadow-sm">
+                                <i data-lucide="user-plus" class="w-3.5 h-3.5"></i> Invitar
+                            </button>
+                        </div>
+                        <div class="p-0 overflow-x-auto">
+                            <table class="w-full text-left border-collapse">
+                                <thead>
+                                    <tr class="bg-white border-b border-gray-100">
+                                        <th class="px-5 py-3 text-[10px] uppercase font-bold text-gray-400 tracking-wider">Usuario / Mail</th>
+                                        <th class="px-5 py-3 text-[10px] uppercase font-bold text-gray-400 tracking-wider">Seguridad</th>
+                                        <th class="px-5 py-3 text-[10px] uppercase font-bold text-gray-400 tracking-wider text-right">Acción</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr class="border-b border-gray-50 hover:bg-gray-50 transition">
+                                        <td class="px-5 py-4">
+                                            <p class="font-bold text-[13px] text-sipar-dark">Steven Groos</p>
+                                            <p class="text-[11px] text-gray-500 mt-0.5">steven@sipar.com</p>
+                                        </td>
+                                        <td class="px-5 py-4">
+                                            <span class="bg-purple-50 text-purple-700 px-2 py-0.5 rounded text-[10px] font-bold border border-purple-100 mb-1.5 inline-block">Super Admin</span><br>
+                                            <span class="text-[10px] text-green-600 font-semibold flex items-center gap-1"><i data-lucide="check-circle-2" class="w-3 h-3"></i> 2FA Activo</span>
+                                        </td>
+                                        <td class="px-5 py-4 text-right">
+                                            <button class="text-gray-400 hover:text-sipar-orange transition" title="Inactivo por ser tú mismo"><i data-lucide="user-cog" class="w-4 h-4"></i></button>
+                                        </td>
+                                    </tr>
+                                    <tr class="border-b border-gray-50 hover:bg-gray-50 transition">
+                                        <td class="px-5 py-4">
+                                            <p class="font-bold text-[13px] text-sipar-dark">Carlos Mendoza</p>
+                                            <p class="text-[11px] text-gray-500 mt-0.5">carlos@sipar.com</p>
+                                        </td>
+                                        <td class="px-5 py-4">
+                                            <span class="bg-blue-50 text-blue-700 px-2 py-0.5 rounded text-[10px] font-bold border border-blue-100 mb-1.5 inline-block">Operador</span><br>
+                                            <span class="text-[10px] text-red-500 font-semibold flex items-center gap-1"><i data-lucide="alert-triangle" class="w-3 h-3"></i> Sin 2FA</span>
+                                        </td>
+                                        <td class="px-5 py-4 text-right">
+                                            <button onclick="openModal('modal-admin')" class="px-2.5 py-1.5 bg-white border border-gray-200 text-sipar-dark rounded-md text-[11px] font-bold hover:bg-gray-50 hover:text-sipar-orange shadow-sm transition">
+                                                Gestionar
+                                            </button>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- CONDUCTORES (APP) -->
+                    <div class="w-full bg-white rounded-[20px] shadow-[0_2px_15px_rgba(0,0,0,0.03)] border border-gray-100 overflow-hidden flex flex-col">
+                        <div class="bg-sipar-dark px-6 py-5 border-b border-gray-800 flex justify-between items-center">
+                            <h2 class="text-[15px] font-bold text-white flex items-center gap-2">
+                                <i data-lucide="smartphone" class="w-4 h-4 text-sipar-orange"></i> App Conductores
+                            </h2>
+                            <div class="bg-gray-800 rounded-lg px-2 py-1.5 flex items-center gap-2 border border-gray-700">
+                                <i data-lucide="search" class="w-3 h-3 text-gray-400"></i>
+                                <input type="text" placeholder="Buscar..." class="bg-transparent border-none text-[11px] text-white focus:outline-none placeholder-gray-500 w-24">
+                            </div>
+                        </div>
+                        <div class="p-0 overflow-x-auto">
+                            <table class="w-full text-left border-collapse">
+                                <thead>
+                                    <tr class="bg-gray-50 border-b border-gray-100">
+                                        <th class="px-5 py-3 text-[10px] uppercase font-bold text-gray-500 tracking-wider">Conductor</th>
+                                        <th class="px-5 py-3 text-[10px] uppercase font-bold text-gray-500 tracking-wider">Balance</th>
+                                        <th class="px-5 py-3 text-[10px] uppercase font-bold text-gray-500 tracking-wider text-right">Acción</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr class="border-b border-gray-50 hover:bg-gray-50 transition">
+                                        <td class="px-5 py-4">
+                                            <p class="font-bold text-[13px] text-sipar-dark">Juan Pérez</p>
+                                            <p class="text-[11px] text-gray-500 mt-0.5">juan@mail.com</p>
+                                        </td>
+                                        <td class="px-5 py-4">
+                                            <span class="font-bold text-sipar-dark text-[13px]">150.000 ₲</span>
+                                        </td>
+                                        <td class="px-5 py-4 text-right">
+                                            <button onclick="openModal('modal-conductor')" class="px-2.5 py-1.5 bg-white border border-gray-200 text-sipar-dark rounded-md text-[11px] font-bold hover:bg-gray-50 hover:text-sipar-orange shadow-sm transition">
+                                                Ver Perfil
+                                            </button>
+                                        </td>
+                                    </tr>
+                                    <tr class="border-b border-gray-50 hover:bg-gray-50 transition">
+                                        <td class="px-5 py-4">
+                                            <p class="font-bold text-[13px] text-sipar-dark">María González</p>
+                                            <p class="text-[11px] text-gray-500 mt-0.5">maria@mail.com</p>
+                                        </td>
+                                        <td class="px-5 py-4">
+                                            <span class="font-bold text-sipar-dark text-[13px]">45.000 ₲</span>
+                                        </td>
+                                        <td class="px-5 py-4 text-right">
+                                            <button onclick="openModal('modal-conductor')" class="px-2.5 py-1.5 bg-white border border-gray-200 text-sipar-dark rounded-md text-[11px] font-bold hover:bg-gray-50 hover:text-sipar-orange shadow-sm transition">
+                                                Ver Perfil
+                                            </button>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ============================== -->
+            <!-- VISTA 4: FINANZAS & BILLETERA  -->
+            <!-- ============================== -->
+            <div id="view-finanzas" class="hidden">
+                <!-- KPIs Financieros -->
+                <div class="grid grid-cols-3 gap-6 mb-8">
+                    <!-- KPI 1 -->
+                    <div class="bg-white rounded-[20px] p-6 shadow-[0_2px_15px_rgba(0,0,0,0.03)] border border-gray-100 flex items-center justify-between">
+                        <div>
+                            <p class="text-[13px] font-semibold text-gray-500 mb-1">Fondos de Usuarios (Pasivo)</p>
+                            <p class="text-[26px] font-bold text-sipar-dark tracking-tight">18.540.000 ₲</p>
+                            <p class="text-[11px] text-gray-500 font-semibold mt-2">Saldo total en billeteras</p>
+                        </div>
+                        <div class="w-12 h-12 bg-blue-50 rounded-xl flex justify-center items-center text-blue-500 border border-blue-100">
+                            <i data-lucide="wallet" class="w-6 h-6"></i>
+                        </div>
+                    </div>
+                    <!-- KPI 2 -->
+                    <div class="bg-white rounded-[20px] p-6 shadow-[0_2px_15px_rgba(0,0,0,0.03)] border border-gray-100 flex items-center justify-between">
+                        <div>
+                            <p class="text-[13px] font-semibold text-gray-500 mb-1">Liquidación Bancard (Mes)</p>
+                            <p class="text-[26px] font-bold text-sipar-dark tracking-tight">45.200.000 ₲</p>
+                            <p class="text-[11px] text-green-500 font-bold mt-2 flex items-center gap-1"><i data-lucide="arrow-up-right" class="w-3 h-3"></i> Pagado a SIPAR</p>
+                        </div>
+                        <div class="w-12 h-12 bg-green-50 rounded-xl flex justify-center items-center text-green-500 border border-green-100">
+                            <i data-lucide="landmark" class="w-6 h-6"></i>
+                        </div>
+                    </div>
+                    <!-- KPI 3 -->
+                    <div class="bg-white rounded-[20px] p-6 shadow-[0_2px_15px_rgba(0,0,0,0.03)] border border-red-200 flex items-center justify-between">
+                        <div>
+                            <p class="text-[13px] font-semibold text-gray-500 mb-1">Reembolsos / Disputas</p>
+                            <p class="text-[26px] font-bold text-sipar-dark tracking-tight">1 Pendiente</p>
+                            <p class="text-[11px] text-red-500 font-bold mt-2 flex items-center gap-1"><i data-lucide="alert-circle" class="w-3 h-3"></i> Requiere atención</p>
+                        </div>
+                        <div class="w-12 h-12 bg-red-50 rounded-xl flex justify-center items-center text-red-500 border border-red-100">
+                            <i data-lucide="arrow-left-right" class="w-6 h-6"></i>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Libro Mayor / Transacciones -->
+                <div class="w-full bg-white rounded-[20px] shadow-[0_2px_15px_rgba(0,0,0,0.03)] border border-gray-100 overflow-hidden flex flex-col">
+                    <div class="bg-sipar-dark px-6 py-5 border-b border-gray-800 flex justify-between items-center">
+                        <h2 class="text-lg font-bold text-white flex items-center gap-2">
+                            <i data-lucide="receipt" class="w-5 h-5 text-sipar-orange"></i> Conciliación & Libro Mayor
+                        </h2>
+                        <div class="flex items-center gap-4">
+                            <div class="bg-gray-800 rounded-lg px-3 py-2 flex items-center gap-2 border border-gray-700">
+                                <i data-lucide="search" class="w-4 h-4 text-gray-400"></i>
+                                <input type="text" placeholder="Buscar transacción..." class="bg-transparent border-none text-sm text-white focus:outline-none placeholder-gray-500 w-48">
+                            </div>
+                            <button class="bg-white text-sipar-dark hover:bg-gray-100 px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2 shadow-sm transition">
+                                <i data-lucide="download" class="w-4 h-4"></i> Exportar CSV
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="p-0 overflow-hidden">
+                        <table class="w-full text-left border-collapse">
+                            <thead>
+                                <tr class="bg-gray-50 border-b border-gray-100">
+                                    <th class="px-6 py-4 text-[11px] uppercase font-bold text-gray-500 tracking-wider">Transacción & Fecha</th>
+                                    <th class="px-6 py-4 text-[11px] uppercase font-bold text-gray-500 tracking-wider">Usuario</th>
+                                    <th class="px-6 py-4 text-[11px] uppercase font-bold text-gray-500 tracking-wider">Tipo & Medio</th>
+                                    <th class="px-6 py-4 text-[11px] uppercase font-bold text-gray-500 tracking-wider">Estado</th>
+                                    <th class="px-6 py-4 text-[11px] uppercase font-bold text-gray-500 tracking-wider text-right">Monto (₲) / Acción</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- TRX 1: Disputa Pendiente -->
+                                <tr class="border-b border-gray-50 hover:bg-red-50/30 transition bg-red-50/20">
+                                    <td class="px-6 py-4">
+                                        <p class="font-bold text-[13px] text-sipar-dark">#TRX-98237</p>
+                                        <p class="text-[11px] text-gray-500 mt-1">Hoy, 10:15 AM</p>
+                                    </td>
+                                    <td class="px-6 py-4 text-[13px] font-semibold text-sipar-dark">Juan Pérez</td>
+                                    <td class="px-6 py-4">
+                                        <p class="text-[13px] text-gray-600 font-bold">Consumo de Energía</p>
+                                        <p class="text-[11px] text-gray-500 mt-1 flex items-center gap-1"><i data-lucide="ev-station" class="w-3 h-3"></i> SIPAR Conmebol</p>
+                                    </td>
+                                    <td class="px-6 py-4">
+                                        <span class="bg-red-100 text-red-700 px-2.5 py-1 rounded-full text-[11px] font-bold flex items-center w-max gap-1.5">
+                                            <i data-lucide="alert-circle" class="w-3.5 h-3.5"></i> Disputa / Queja
+                                        </span>
+                                    </td>
+                                    <td class="px-6 py-4 text-right">
+                                        <p class="font-bold text-sipar-dark mb-2">- 85.000</p>
+                                        <button onclick="openModal('modal-finanzas')" class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-red-300 text-red-600 rounded-lg text-xs font-bold hover:bg-red-50 shadow-sm transition">
+                                            <i data-lucide="shield-alert" class="w-3.5 h-3.5"></i> Gestionar
+                                        </button>
+                                    </td>
+                                </tr>
+                                <!-- TRX 2: Ingreso Normal -->
+                                <tr class="border-b border-gray-50 hover:bg-gray-50 transition">
+                                    <td class="px-6 py-4">
+                                        <p class="font-bold text-[13px] text-sipar-dark">#TRX-98236</p>
+                                        <p class="text-[11px] text-gray-500 mt-1">Ayer, 18:30 PM</p>
+                                    </td>
+                                    <td class="px-6 py-4 text-[13px] font-semibold text-sipar-dark">María González</td>
+                                    <td class="px-6 py-4">
+                                        <p class="text-[13px] text-gray-600 font-bold">Recarga Billetera</p>
+                                        <p class="text-[11px] text-gray-500 mt-1 flex items-center gap-1"><i data-lucide="credit-card" class="w-3 h-3"></i> Bancard - Visa **4092</p>
+                                    </td>
+                                    <td class="px-6 py-4">
+                                        <span class="bg-green-100 text-green-700 px-2.5 py-1 rounded-full text-[11px] font-bold flex items-center w-max gap-1.5">
+                                            <i data-lucide="check-circle-2" class="w-3.5 h-3.5"></i> Aprobado
+                                        </span>
+                                    </td>
+                                    <td class="px-6 py-4 text-right">
+                                        <p class="font-bold text-green-600 mb-2">+ 150.000</p>
+                                        <button class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 text-gray-500 rounded-lg text-xs font-bold hover:bg-gray-50 transition">
+                                            Recibo
+                                        </button>
+                                    </td>
+                                </tr>
+                                <!-- TRX 3: Consumo Normal -->
+                                <tr class="border-b border-gray-50 hover:bg-gray-50 transition">
+                                    <td class="px-6 py-4">
+                                        <p class="font-bold text-[13px] text-sipar-dark">#TRX-98235</p>
+                                        <p class="text-[11px] text-gray-500 mt-1">Ayer, 14:15 PM</p>
+                                    </td>
+                                    <td class="px-6 py-4 text-[13px] font-semibold text-sipar-dark">Carlos Medina</td>
+                                    <td class="px-6 py-4">
+                                        <p class="text-[13px] text-gray-600 font-bold">Consumo de Energía</p>
+                                        <p class="text-[11px] text-gray-500 mt-1 flex items-center gap-1"><i data-lucide="ev-station" class="w-3 h-3"></i> SIPAR Luque Centro</p>
+                                    </td>
+                                    <td class="px-6 py-4">
+                                        <span class="bg-green-100 text-green-700 px-2.5 py-1 rounded-full text-[11px] font-bold flex items-center w-max gap-1.5">
+                                            <i data-lucide="check-circle-2" class="w-3.5 h-3.5"></i> Completado
+                                        </span>
+                                    </td>
+                                    <td class="px-6 py-4 text-right">
+                                        <p class="font-bold text-sipar-dark mb-2">- 45.000</p>
+                                        <button class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 text-gray-500 rounded-lg text-xs font-bold hover:bg-gray-50 transition">
+                                            Recibo
+                                        </button>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ============================== -->
+            <!-- VISTA 5: TARIFAS & PARÁMETROS  -->
+            <!-- ============================== -->
+            <div id="view-parametros" class="hidden">
+                <div class="flex flex-col gap-8">
+                    
+                    <!-- Tarjetas de Tarifas (Full width) -->
+                    <div class="w-full bg-white rounded-[20px] shadow-[0_2px_15px_rgba(0,0,0,0.03)] border border-gray-100 overflow-hidden flex flex-col">
+                        <div class="bg-sipar-dark px-6 py-5 border-b border-gray-800 flex justify-between items-center">
+                            <div>
+                                <h2 class="text-lg font-bold text-white flex items-center gap-2">
+                                    <i data-lucide="sliders" class="w-5 h-5 text-sipar-orange"></i> Gestión de Tarifas
+                                </h2>
+                                <p class="text-gray-400 text-[11px] mt-1">Configura múltiples perfiles de cobro y asígnalos a distintas estaciones.</p>
+                            </div>
+                            <button onclick="openModal('modal-tarifa')" class="bg-sipar-orange hover:bg-orange-600 text-white px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2 shadow-lg transition">
+                                <i data-lucide="plus-circle" class="w-4 h-4"></i> Nueva Tarifa
+                            </button>
+                        </div>
+                        
+                        <div class="p-0 overflow-x-auto">
+                            <table class="w-full text-left border-collapse">
+                                <thead>
+                                    <tr class="bg-gray-50 border-b border-gray-100">
+                                        <th class="px-6 py-4 text-[11px] uppercase font-bold text-gray-500 tracking-wider">Nombre del Perfil</th>
+                                        <th class="px-6 py-4 text-[11px] uppercase font-bold text-gray-500 tracking-wider">Precio x Energía</th>
+                                        <th class="px-6 py-4 text-[11px] uppercase font-bold text-gray-500 tracking-wider">Costo Fijo (Conexión)</th>
+                                        <th class="px-6 py-4 text-[11px] uppercase font-bold text-gray-500 tracking-wider">Estado</th>
+                                        <th class="px-6 py-4 text-[11px] uppercase font-bold text-gray-500 tracking-wider text-right">Acción</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr class="border-b border-gray-50 hover:bg-gray-50 transition">
+                                        <td class="px-6 py-4">
+                                            <p class="font-bold text-[13px] text-sipar-dark flex items-center gap-1.5"><i data-lucide="star" class="w-3.5 h-3.5 text-sipar-orange"></i> Tarifa Base (Luque)</p>
+                                            <p class="text-[11px] text-gray-500 mt-1">Aplicada a 1 estación</p>
+                                        </td>
+                                        <td class="px-6 py-4 text-[13px] font-bold text-sipar-dark">2.500 ₲ / kWh</td>
+                                        <td class="px-6 py-4 text-[13px] font-semibold text-gray-600">0 ₲</td>
+                                        <td class="px-6 py-4">
+                                            <span class="bg-green-100 text-green-700 px-2.5 py-1 rounded-full text-[11px] font-bold flex items-center w-max gap-1.5">Activa</span>
+                                        </td>
+                                        <td class="px-6 py-4 text-right">
+                                            <button onclick="openModal('modal-tarifa')" class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 text-sipar-dark rounded-lg text-xs font-bold hover:bg-gray-50 hover:text-sipar-orange shadow-sm transition">
+                                                <i data-lucide="edit" class="w-3.5 h-3.5"></i> Editar
+                                            </button>
+                                        </td>
+                                    </tr>
+                                    <tr class="border-b border-gray-50 hover:bg-gray-50 transition">
+                                        <td class="px-6 py-4">
+                                            <p class="font-bold text-[13px] text-sipar-dark">Tarifa Aeropuerto Premium</p>
+                                            <p class="text-[11px] text-gray-500 mt-1">Aplicada a 1 estación</p>
+                                        </td>
+                                        <td class="px-6 py-4 text-[13px] font-bold text-sipar-dark">3.000 ₲ / kWh</td>
+                                        <td class="px-6 py-4 text-[13px] font-semibold text-gray-600">5.000 ₲</td>
+                                        <td class="px-6 py-4">
+                                            <span class="bg-green-100 text-green-700 px-2.5 py-1 rounded-full text-[11px] font-bold flex items-center w-max gap-1.5">Activa</span>
+                                        </td>
+                                        <td class="px-6 py-4 text-right">
+                                            <button onclick="openModal('modal-tarifa')" class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 text-sipar-dark rounded-lg text-xs font-bold hover:bg-gray-50 hover:text-sipar-orange shadow-sm transition">
+                                                <i data-lucide="edit" class="w-3.5 h-3.5"></i> Editar
+                                            </button>
+                                        </td>
+                                    </tr>
+                                    <tr class="hover:bg-gray-50 transition opacity-60">
+                                        <td class="px-6 py-4">
+                                            <p class="font-bold text-[13px] text-sipar-dark">Promoción Nocturna</p>
+                                            <p class="text-[11px] text-gray-500 mt-1">Sin estaciones asignadas</p>
+                                        </td>
+                                        <td class="px-6 py-4 text-[13px] font-bold text-sipar-dark">1.800 ₲ / kWh</td>
+                                        <td class="px-6 py-4 text-[13px] font-semibold text-gray-600">0 ₲</td>
+                                        <td class="px-6 py-4">
+                                            <span class="bg-gray-100 text-gray-500 px-2.5 py-1 rounded-full text-[11px] font-bold flex items-center w-max gap-1.5">Inactiva</span>
+                                        </td>
+                                        <td class="px-6 py-4 text-right">
+                                            <button onclick="openModal('modal-tarifa')" class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 text-sipar-dark rounded-lg text-xs font-bold hover:bg-gray-50 hover:text-sipar-orange shadow-sm transition">
+                                                <i data-lucide="edit" class="w-3.5 h-3.5"></i> Editar
+                                            </button>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Historial de Modificaciones (Full width) -->
+                    <div class="w-full bg-white rounded-[20px] shadow-[0_2px_15px_rgba(0,0,0,0.03)] border border-gray-100 overflow-hidden flex flex-col">
+                        <div class="px-6 py-4 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
+                            <h3 class="text-[15px] font-bold text-sipar-dark flex items-center gap-2">
+                                <i data-lucide="history" class="w-4 h-4 text-sipar-orange"></i> Log de Auditoría de Precios
+                            </h3>
+                            <span class="bg-gray-200 text-gray-600 px-2 py-1 rounded text-[10px] font-bold border border-gray-300">ISO 27001 Compliant</span>
+                        </div>
+                        <div class="p-0 overflow-x-auto">
+                            <table class="w-full text-left border-collapse">
+                                <thead>
+                                    <tr class="bg-white border-b border-gray-100">
+                                        <th class="px-6 py-3 text-[10px] uppercase font-bold text-gray-400 tracking-wider">Fecha & Hora</th>
+                                        <th class="px-6 py-3 text-[10px] uppercase font-bold text-gray-400 tracking-wider">Usuario Responsable</th>
+                                        <th class="px-6 py-3 text-[10px] uppercase font-bold text-gray-400 tracking-wider">Dirección IP</th>
+                                        <th class="px-6 py-3 text-[10px] uppercase font-bold text-gray-400 tracking-wider text-right">Detalle de la Modificación</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr class="border-b border-gray-50 hover:bg-gray-50 transition">
+                                        <td class="px-6 py-4 text-[12px] font-bold text-sipar-dark">15 Sep 2026, 09:30 AM</td>
+                                        <td class="px-6 py-4">
+                                            <p class="text-[12px] font-bold text-sipar-dark flex items-center gap-2">
+                                                <span class="w-5 h-5 bg-sipar-orange text-white rounded-full flex justify-center items-center text-[8px] font-bold">SG</span> Steven Groos
+                                            </p>
+                                        </td>
+                                        <td class="px-6 py-4 text-[11px] font-mono text-gray-500">190.128.45.12 (PY)</td>
+                                        <td class="px-6 py-4 text-right">
+                                            <p class="text-[12px] text-gray-600 font-semibold">Tarifa Base: <span class="line-through text-gray-400">2.300 ₲</span> <i data-lucide="arrow-right" class="w-3 h-3 inline text-sipar-orange mx-1"></i> <span class="text-sipar-dark font-bold">2.500 ₲</span></p>
+                                        </td>
+                                    </tr>
+                                    <tr class="border-b border-gray-50 hover:bg-gray-50 transition">
+                                        <td class="px-6 py-4 text-[12px] font-bold text-sipar-dark">01 Ago 2026, 14:10 PM</td>
+                                        <td class="px-6 py-4">
+                                            <p class="text-[12px] font-bold text-sipar-dark flex items-center gap-2">
+                                                <span class="w-5 h-5 bg-blue-100 text-blue-600 rounded-full flex justify-center items-center text-[8px] font-bold">CM</span> Carlos Mendoza
+                                            </p>
+                                        </td>
+                                        <td class="px-6 py-4 text-[11px] font-mono text-gray-500">190.128.22.88 (PY)</td>
+                                        <td class="px-6 py-4 text-right">
+                                            <p class="text-[12px] text-gray-600 font-semibold">Tarifa Aeropuerto: <span class="line-through text-gray-400">2.500 ₲</span> <i data-lucide="arrow-right" class="w-3 h-3 inline text-sipar-orange mx-1"></i> <span class="text-sipar-dark font-bold">3.000 ₲</span></p>
+                                        </td>
+                                    </tr>
+                                    <tr class="hover:bg-gray-50 transition">
+                                        <td class="px-6 py-4 text-[12px] font-bold text-sipar-dark">15 Ene 2026, 10:00 AM</td>
+                                        <td class="px-6 py-4">
+                                            <p class="text-[12px] font-bold text-sipar-dark flex items-center gap-2">
+                                                <span class="w-5 h-5 bg-sipar-orange text-white rounded-full flex justify-center items-center text-[8px] font-bold">SG</span> Steven Groos
+                                            </p>
+                                        </td>
+                                        <td class="px-6 py-4 text-[11px] font-mono text-gray-500">Sistema / Localhost</td>
+                                        <td class="px-6 py-4 text-right">
+                                            <p class="text-[12px] text-green-600 font-bold flex items-center justify-end gap-1.5"><i data-lucide="check-circle" class="w-3.5 h-3.5"></i> Creación Inicial de Tarifas</p>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+            <!-- ============================== -->
+            <!-- VISTA 6: TIENDA DE ACCESORIOS  -->
+            <!-- ============================== -->
+            <div id="view-tienda" class="hidden">
+                <div class="flex flex-col gap-8">
+                    <!-- Inventario -->
+                    <div class="w-full bg-white rounded-[20px] shadow-[0_2px_15px_rgba(0,0,0,0.03)] border border-gray-100 overflow-hidden flex flex-col">
+                        <div class="bg-sipar-dark px-6 py-5 border-b border-gray-800 flex justify-between items-center">
+                            <div>
+                                <h2 class="text-lg font-bold text-white flex items-center gap-2">
+                                    <i data-lucide="shopping-bag" class="w-5 h-5 text-sipar-orange"></i> Inventario de Accesorios
+                                </h2>
+                                <p class="text-gray-400 text-[11px] mt-1">Gestiona los productos físicos disponibles para la venta dentro de la App Móvil.</p>
+                            </div>
+                            <button onclick="openModal('modal-producto')" class="bg-sipar-orange hover:bg-orange-600 text-white px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2 shadow-lg transition">
+                                <i data-lucide="plus-circle" class="w-4 h-4"></i> Nuevo Producto
+                            </button>
+                        </div>
+                        
+                        <div class="p-0 overflow-x-auto">
+                            <table class="w-full text-left border-collapse">
+                                <thead>
+                                    <tr class="bg-gray-50 border-b border-gray-100">
+                                        <th class="px-6 py-4 text-[11px] uppercase font-bold text-gray-500 tracking-wider">Producto (App)</th>
+                                        <th class="px-6 py-4 text-[11px] uppercase font-bold text-gray-500 tracking-wider">Precio Unitario</th>
+                                        <th class="px-6 py-4 text-[11px] uppercase font-bold text-gray-500 tracking-wider">Stock Disponible</th>
+                                        <th class="px-6 py-4 text-[11px] uppercase font-bold text-gray-500 tracking-wider text-right">Acción</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr class="border-b border-gray-50 hover:bg-gray-50 transition">
+                                        <td class="px-6 py-4 flex items-center gap-4">
+                                            <div class="w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center border border-gray-200 text-gray-400">
+                                                <i data-lucide="image" class="w-5 h-5"></i>
+                                            </div>
+                                            <div>
+                                                <p class="font-bold text-[13px] text-sipar-dark">Adaptador CCS2 a CHAdeMO</p>
+                                                <p class="text-[11px] text-gray-500 mt-1 font-mono">SKU: ACC-001</p>
+                                            </div>
+                                        </td>
+                                        <td class="px-6 py-4 text-[13px] font-bold text-sipar-dark">1.850.000 ₲</td>
+                                        <td class="px-6 py-4">
+                                            <span class="bg-green-100 text-green-700 px-2.5 py-1.5 rounded-md text-[11px] font-bold flex items-center w-max gap-1.5">
+                                                <i data-lucide="package" class="w-3.5 h-3.5"></i> 12 Unidades
+                                            </span>
+                                        </td>
+                                        <td class="px-6 py-4 text-right">
+                                            <button onclick="openModal('modal-stock')" class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 text-sipar-dark rounded-lg text-xs font-bold hover:bg-gray-50 hover:text-sipar-orange shadow-sm transition mr-2">
+                                                <i data-lucide="boxes" class="w-3.5 h-3.5"></i> Stock
+                                            </button>
+                                            <button onclick="openModal('modal-producto')" class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 text-sipar-dark rounded-lg text-xs font-bold hover:bg-gray-50 hover:text-sipar-orange shadow-sm transition">
+                                                <i data-lucide="edit" class="w-3.5 h-3.5"></i> Editar
+                                            </button>
+                                        </td>
+                                    </tr>
+                                    <tr class="border-b border-gray-50 hover:bg-gray-50 transition">
+                                        <td class="px-6 py-4 flex items-center gap-4">
+                                            <div class="w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center border border-gray-200 text-gray-400">
+                                                <i data-lucide="image" class="w-5 h-5"></i>
+                                            </div>
+                                            <div>
+                                                <p class="font-bold text-[13px] text-sipar-dark">Cargador Domiciliario 7kW</p>
+                                                <p class="text-[11px] text-gray-500 mt-1 font-mono">SKU: ACC-002</p>
+                                            </div>
+                                        </td>
+                                        <td class="px-6 py-4 text-[13px] font-bold text-sipar-dark">3.200.000 ₲</td>
+                                        <td class="px-6 py-4">
+                                            <span class="bg-yellow-100 text-yellow-700 px-2.5 py-1.5 rounded-md text-[11px] font-bold flex items-center w-max gap-1.5">
+                                                <i data-lucide="package" class="w-3.5 h-3.5"></i> 3 Unidades (Bajo)
+                                            </span>
+                                        </td>
+                                        <td class="px-6 py-4 text-right">
+                                            <button onclick="openModal('modal-stock')" class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 text-sipar-dark rounded-lg text-xs font-bold hover:bg-gray-50 hover:text-sipar-orange shadow-sm transition mr-2">
+                                                <i data-lucide="boxes" class="w-3.5 h-3.5"></i> Stock
+                                            </button>
+                                            <button onclick="openModal('modal-producto')" class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 text-sipar-dark rounded-lg text-xs font-bold hover:bg-gray-50 hover:text-sipar-orange shadow-sm transition">
+                                                <i data-lucide="edit" class="w-3.5 h-3.5"></i> Editar
+                                            </button>
+                                        </td>
+                                    </tr>
+                                    <tr class="hover:bg-red-50/20 transition opacity-80">
+                                        <td class="px-6 py-4 flex items-center gap-4">
+                                            <div class="w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center border border-gray-200 text-gray-400">
+                                                <i data-lucide="image" class="w-5 h-5"></i>
+                                            </div>
+                                            <div>
+                                                <p class="font-bold text-[13px] text-sipar-dark">Inflador Portátil 12V</p>
+                                                <p class="text-[11px] text-gray-500 mt-1 font-mono">SKU: ACC-003</p>
+                                            </div>
+                                        </td>
+                                        <td class="px-6 py-4 text-[13px] font-bold text-sipar-dark">350.000 ₲</td>
+                                        <td class="px-6 py-4">
+                                            <span class="bg-red-100 text-red-700 px-2.5 py-1.5 rounded-md text-[11px] font-bold flex items-center w-max gap-1.5">
+                                                <i data-lucide="x-circle" class="w-3.5 h-3.5"></i> Sin Stock (Agotado)
+                                            </span>
+                                        </td>
+                                        <td class="px-6 py-4 text-right">
+                                            <button onclick="openModal('modal-stock')" class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 text-sipar-dark rounded-lg text-xs font-bold hover:bg-gray-50 hover:text-sipar-orange shadow-sm transition mr-2">
+                                                <i data-lucide="boxes" class="w-3.5 h-3.5"></i> Stock
+                                            </button>
+                                            <button onclick="openModal('modal-producto')" class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 text-sipar-dark rounded-lg text-xs font-bold hover:bg-gray-50 hover:text-sipar-orange shadow-sm transition">
+                                                <i data-lucide="edit" class="w-3.5 h-3.5"></i> Editar
+                                            </button>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Historial de Movimientos de Stock (Auditoría) -->
+                    <div class="w-full bg-white rounded-[20px] shadow-[0_2px_15px_rgba(0,0,0,0.03)] border border-gray-100 overflow-hidden flex flex-col">
+                        <div class="px-6 py-4 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
+                            <h3 class="text-[15px] font-bold text-sipar-dark flex items-center gap-2">
+                                <i data-lucide="clipboard-list" class="w-4 h-4 text-sipar-orange"></i> Historial de Movimientos de Stock
+                            </h3>
+                            <button class="text-gray-500 hover:text-sipar-dark text-xs font-bold flex items-center gap-1"><i data-lucide="download" class="w-3 h-3"></i> Exportar Registro</button>
+                        </div>
+                        <div class="p-0 overflow-x-auto">
+                            <table class="w-full text-left border-collapse">
+                                <thead>
+                                    <tr class="bg-white border-b border-gray-100">
+                                        <th class="px-6 py-3 text-[10px] uppercase font-bold text-gray-400 tracking-wider">Fecha & Hora</th>
+                                        <th class="px-6 py-3 text-[10px] uppercase font-bold text-gray-400 tracking-wider">Responsable / Origen</th>
+                                        <th class="px-6 py-3 text-[10px] uppercase font-bold text-gray-400 tracking-wider">Producto</th>
+                                        <th class="px-6 py-3 text-[10px] uppercase font-bold text-gray-400 tracking-wider text-right">Movimiento</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr class="border-b border-gray-50 hover:bg-gray-50 transition">
+                                        <td class="px-6 py-4 text-[12px] font-bold text-sipar-dark">Hoy, 11:30 AM</td>
+                                        <td class="px-6 py-4">
+                                            <p class="text-[12px] font-bold text-sipar-dark flex items-center gap-2">
+                                                <span class="w-5 h-5 bg-sipar-orange text-white rounded-full flex justify-center items-center text-[8px] font-bold">SG</span> Steven Groos
+                                            </p>
+                                        </td>
+                                        <td class="px-6 py-4 text-[12px] text-gray-600 font-medium">Adaptador CCS2 (ACC-001)</td>
+                                        <td class="px-6 py-4 text-right">
+                                            <span class="bg-green-50 text-green-600 px-2 py-1 rounded text-xs font-bold inline-block border border-green-100 mb-1">+ 5 Unidades</span>
+                                            <p class="text-[10px] text-gray-500">Ingreso manual (Lote Nuevo)</p>
+                                        </td>
+                                    </tr>
+                                    <tr class="border-b border-gray-50 hover:bg-gray-50 transition">
+                                        <td class="px-6 py-4 text-[12px] font-bold text-sipar-dark">Ayer, 16:45 PM</td>
+                                        <td class="px-6 py-4">
+                                            <p class="text-[12px] font-bold text-sipar-dark flex items-center gap-2">
+                                                <i data-lucide="smartphone" class="w-4 h-4 text-gray-400"></i> App (Venta Automática)
+                                            </p>
+                                        </td>
+                                        <td class="px-6 py-4 text-[12px] text-gray-600 font-medium">Inflador Portátil 12V (ACC-003)</td>
+                                        <td class="px-6 py-4 text-right">
+                                            <span class="bg-red-50 text-red-600 px-2 py-1 rounded text-xs font-bold inline-block border border-red-100 mb-1">- 1 Unidad</span>
+                                            <p class="text-[10px] text-gray-500">Venta ID: #TRX-98200</p>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+            <!-- ============================== -->
+            <!-- VISTA 7: CONFIGURACIONES       -->
+            <!-- ============================== -->
+            <div id="view-configuracion" class="hidden">
+                <div class="grid grid-cols-2 gap-8 items-start">
+                    
+                    <!-- COLUMNA IZQUIERDA -->
+                    <div class="flex flex-col gap-8">
+                        <!-- Seguridad Global (ISO 27001) -->
+                        <div class="bg-white rounded-[20px] shadow-[0_2px_15px_rgba(0,0,0,0.03)] border border-gray-100 overflow-hidden flex flex-col">
+                            <div class="px-6 py-5 border-b border-gray-100 flex items-center gap-2 bg-gray-50">
+                                <i data-lucide="shield" class="w-5 h-5 text-sipar-orange"></i>
+                                <h2 class="text-[15px] font-bold text-sipar-dark">Seguridad Global (ISO 27001)</h2>
+                            </div>
+                            <div class="p-6">
+                                <div class="flex items-center justify-between mb-5">
+                                    <div>
+                                        <p class="text-[13px] font-bold text-sipar-dark">Autenticación de Dos Factores (2FA)</p>
+                                        <p class="text-[11px] text-gray-500 mt-1">Obligar al equipo interno a usar Google Authenticator.</p>
+                                    </div>
+                                    <!-- Toggle Switch -->
+                                    <label class="cursor-pointer relative inline-block w-10 h-5">
+                                        <input type="checkbox" class="peer sr-only" checked>
+                                        <div class="w-10 h-5 bg-gray-200 rounded-full peer-checked:bg-sipar-orange transition-colors"></div>
+                                        <div class="absolute left-1 top-1 w-3 h-3 bg-white rounded-full transition-transform peer-checked:translate-x-5 shadow-sm"></div>
+                                    </label>
+                                </div>
+                                <div class="mb-5">
+                                    <label class="block text-[13px] font-bold text-sipar-dark mb-2">Expiración de Sesión Inactiva</label>
+                                    <select class="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-600 focus:outline-none focus:ring-2 focus:ring-sipar-orange transition appearance-none bg-white">
+                                        <option>15 minutos (Estricto)</option>
+                                        <option selected>30 minutos (Recomendado)</option>
+                                        <option>1 Hora</option>
+                                    </select>
+                                </div>
+                                <div class="mb-2">
+                                    <label class="block text-[13px] font-bold text-sipar-dark mb-2">Política de Contraseñas</label>
+                                    <select class="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-600 focus:outline-none focus:ring-2 focus:ring-sipar-orange transition appearance-none bg-white">
+                                        <option>Exigir rotación cada 90 días</option>
+                                        <option>Exigir rotación cada 180 días</option>
+                                        <option>No exigir rotación</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Notificaciones y Alertas -->
+                        <div class="bg-white rounded-[20px] shadow-[0_2px_15px_rgba(0,0,0,0.03)] border border-gray-100 overflow-hidden flex flex-col">
+                            <div class="px-6 py-5 border-b border-gray-100 flex items-center gap-2 bg-gray-50">
+                                <i data-lucide="bell" class="w-5 h-5 text-sipar-orange"></i>
+                                <h2 class="text-[15px] font-bold text-sipar-dark">Notificaciones del Sistema</h2>
+                            </div>
+                            <div class="p-6">
+                                <div class="flex items-center justify-between mb-5">
+                                    <div>
+                                        <p class="text-[13px] font-bold text-sipar-dark">Alertas Críticas de Hardware</p>
+                                        <p class="text-[11px] text-gray-500 mt-1">Emails instantáneos si un cargador se desconecta.</p>
+                                    </div>
+                                    <label class="cursor-pointer relative inline-block w-10 h-5">
+                                        <input type="checkbox" class="peer sr-only" checked>
+                                        <div class="w-10 h-5 bg-gray-200 rounded-full peer-checked:bg-sipar-orange transition-colors"></div>
+                                        <div class="absolute left-1 top-1 w-3 h-3 bg-white rounded-full transition-transform peer-checked:translate-x-5 shadow-sm"></div>
+                                    </label>
+                                </div>
+                                <div class="flex items-center justify-between mb-5">
+                                    <div>
+                                        <p class="text-[13px] font-bold text-sipar-dark">Alertas de Fraude o Disputas</p>
+                                        <p class="text-[11px] text-gray-500 mt-1">Notificar al área financiera sobre reembolsos.</p>
+                                    </div>
+                                    <label class="cursor-pointer relative inline-block w-10 h-5">
+                                        <input type="checkbox" class="peer sr-only" checked>
+                                        <div class="w-10 h-5 bg-gray-200 rounded-full peer-checked:bg-sipar-orange transition-colors"></div>
+                                        <div class="absolute left-1 top-1 w-3 h-3 bg-white rounded-full transition-transform peer-checked:translate-x-5 shadow-sm"></div>
+                                    </label>
+                                </div>
+                                <div class="flex items-center justify-between">
+                                    <div>
+                                        <p class="text-[13px] font-bold text-sipar-dark">Reporte Diario de Recaudación</p>
+                                        <p class="text-[11px] text-gray-500 mt-1">Corte automático a las 23:59hs vía Email.</p>
+                                    </div>
+                                    <label class="cursor-pointer relative inline-block w-10 h-5">
+                                        <input type="checkbox" class="peer sr-only">
+                                        <div class="w-10 h-5 bg-gray-200 rounded-full peer-checked:bg-sipar-orange transition-colors"></div>
+                                        <div class="absolute left-1 top-1 w-3 h-3 bg-white rounded-full transition-transform peer-checked:translate-x-5 shadow-sm"></div>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- COLUMNA DERECHA -->
+                    <div class="flex flex-col gap-8">
+                        <!-- Roles y Perfiles -->
+                        <div class="bg-white rounded-[20px] shadow-[0_2px_15px_rgba(0,0,0,0.03)] border border-gray-100 overflow-hidden flex flex-col">
+                            <div class="px-6 py-5 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+                                <div class="flex items-center gap-2">
+                                    <i data-lucide="users-cog" class="w-5 h-5 text-sipar-orange"></i>
+                                    <h2 class="text-[15px] font-bold text-sipar-dark">Roles y Perfiles de Acceso</h2>
+                                </div>
+                                <button onclick="openModal('modal-roles')" class="text-sipar-orange text-[12px] font-bold hover:underline flex items-center gap-1">
+                                    <i data-lucide="plus" class="w-3 h-3"></i> Crear Rol Nuevo
+                                </button>
+                            </div>
+                            <div class="p-0">
+                                <div class="p-5 border-b border-gray-50 flex justify-between items-center hover:bg-gray-50 transition">
+                                    <div>
+                                        <p class="font-bold text-[13px] text-sipar-dark">Super Admin</p>
+                                        <p class="text-[11px] text-gray-500 mt-1">Acceso total al sistema y finanzas.</p>
+                                    </div>
+                                    <span class="bg-purple-100 text-purple-700 px-2.5 py-1 rounded-md text-[10px] font-bold border border-purple-200">Acceso Ilimitado</span>
+                                </div>
+                                <div class="p-5 border-b border-gray-50 flex justify-between items-center hover:bg-gray-50 transition">
+                                    <div>
+                                        <p class="font-bold text-[13px] text-sipar-dark">Soporte Técnico</p>
+                                        <p class="text-[11px] text-gray-500 mt-1">Reinicio de cargadores y lectura de logs.</p>
+                                    </div>
+                                    <button onclick="openModal('modal-roles')" class="text-gray-400 hover:text-sipar-orange bg-white border border-gray-200 px-3 py-1.5 rounded-lg text-xs font-bold shadow-sm transition">Ver Permisos</button>
+                                </div>
+                                <div class="p-5 flex justify-between items-center hover:bg-gray-50 transition">
+                                    <div>
+                                        <p class="font-bold text-[13px] text-sipar-dark">Analista Financiero</p>
+                                        <p class="text-[11px] text-gray-500 mt-1">Aprobación de reembolsos y reportes.</p>
+                                    </div>
+                                    <button onclick="openModal('modal-roles')" class="text-gray-400 hover:text-sipar-orange bg-white border border-gray-200 px-3 py-1.5 rounded-lg text-xs font-bold shadow-sm transition">Ver Permisos</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Preferencias del Panel UI -->
+                        <div class="bg-white rounded-[20px] shadow-[0_2px_15px_rgba(0,0,0,0.03)] border border-gray-100 overflow-hidden flex flex-col">
+                            <div class="px-6 py-5 border-b border-gray-100 flex items-center gap-2 bg-gray-50">
+                                <i data-lucide="monitor" class="w-5 h-5 text-sipar-orange"></i>
+                                <h2 class="text-[15px] font-bold text-sipar-dark">Preferencias de Interfaz</h2>
+                            </div>
+                            <div class="p-6">
+                                <div class="flex items-center justify-between mb-5">
+                                    <div class="flex items-center gap-3">
+                                        <div class="w-8 h-8 bg-gray-100 rounded flex justify-center items-center"><i data-lucide="moon" class="w-4 h-4 text-sipar-dark"></i></div>
+                                        <p class="text-[13px] font-bold text-sipar-dark">Modo Oscuro</p>
+                                    </div>
+                                    <label class="cursor-pointer relative inline-block w-10 h-5">
+                                        <input type="checkbox" class="peer sr-only">
+                                        <div class="w-10 h-5 bg-gray-200 rounded-full peer-checked:bg-sipar-orange transition-colors"></div>
+                                        <div class="absolute left-1 top-1 w-3 h-3 bg-white rounded-full transition-transform peer-checked:translate-x-5 shadow-sm"></div>
+                                    </label>
+                                </div>
+                                <div>
+                                    <label class="block text-[13px] font-bold text-sipar-dark mb-2">Idioma del Panel</label>
+                                    <select class="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-600 focus:outline-none focus:ring-2 focus:ring-sipar-orange transition appearance-none bg-white">
+                                        <option selected>Español (Latinoamérica)</option>
+                                        <option>English (US)</option>
+                                        <option>Português (Brasil)</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+        </div>
+    </main>
+
+    <!-- ============================== -->
+    <!-- MODALS                         -->
+    <!-- ============================== -->
+
+    <!-- Modal 1: Nuevo Cargador -->
+    <div id="modal-nuevo" class="fixed inset-0 z-[100] hidden items-center justify-center bg-sipar-dark/60 backdrop-blur-sm p-4">
+        <div class="bg-white rounded-[20px] w-full max-w-lg shadow-2xl flex flex-col overflow-hidden modal-animate border border-gray-200">
+            <div class="px-6 py-5 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+                <h2 class="text-lg font-bold text-sipar-dark flex items-center gap-2">
+                    <i data-lucide="plus-circle" class="w-5 h-5 text-sipar-orange"></i> Registrar Nuevo Cargador
+                </h2>
+                <button onclick="closeModal('modal-nuevo')" class="text-gray-400 hover:text-red-500 transition"><i data-lucide="x" class="w-5 h-5"></i></button>
+            </div>
+            
+            <div class="p-6">
+                <form>
+                    <div class="mb-4">
+                        <label class="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Nombre Público</label>
+                        <input type="text" placeholder="Ej. SIPAR Shopping del Sol" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm text-sipar-dark focus:outline-none focus:ring-2 focus:ring-sipar-orange transition">
+                    </div>
+                    <div class="mb-4">
+                        <label class="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">ID de Hardware (OCPP)</label>
+                        <input type="text" placeholder="S001XXX" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm text-sipar-dark focus:outline-none focus:ring-2 focus:ring-sipar-orange transition font-mono bg-gray-50">
+                    </div>
+                    <div class="mb-4">
+                        <label class="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Potencia Máxima (kW)</label>
+                        <select class="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm text-sipar-dark focus:outline-none focus:ring-2 focus:ring-sipar-orange transition appearance-none bg-white">
+                            <option>60 kW (Carga Rápida)</option>
+                            <option>120 kW (Carga Ultra Rápida)</option>
+                            <option>7 kW (AC - Lenta)</option>
+                        </select>
+                    </div>
+                    <div class="mb-8">
+                        <label class="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Cantidad de Conectores</label>
+                        <div class="flex gap-6">
+                            <label class="flex items-center gap-2 cursor-pointer">
+                                <input type="radio" name="connectors" class="w-4 h-4 text-sipar-orange focus:ring-sipar-orange">
+                                <span class="text-sm font-medium text-sipar-dark">1 Manguera</span>
+                            </label>
+                            <label class="flex items-center gap-2 cursor-pointer">
+                                <input type="radio" name="connectors" checked class="w-4 h-4 text-sipar-orange focus:ring-sipar-orange">
+                                <span class="text-sm font-medium text-sipar-dark">2 Mangueras</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="flex gap-3">
+                        <button type="button" onclick="closeModal('modal-nuevo')" class="flex-1 py-3 bg-gray-100 text-gray-600 font-bold rounded-xl hover:bg-gray-200 transition">Cancelar</button>
+                        <button type="button" onclick="closeModal('modal-nuevo')" class="flex-1 py-3 bg-sipar-dark text-white font-bold rounded-xl shadow-md hover:bg-gray-800 transition flex items-center justify-center gap-2">
+                            <i data-lucide="save" class="w-4 h-4"></i> Guardar Hardware
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal 2: Detalles de Estación -->
+    <div id="modal-detalles" class="fixed inset-0 z-[100] hidden items-center justify-center bg-sipar-dark/60 backdrop-blur-sm p-4">
+        <div class="bg-white rounded-[20px] w-full max-w-2xl shadow-2xl flex flex-col overflow-hidden modal-animate border border-gray-200">
+            <div class="px-6 py-5 border-b border-gray-100 flex justify-between items-center bg-sipar-dark text-white">
+                <div class="flex items-center gap-3">
+                    <div class="bg-gray-800 p-2 rounded-lg">
+                        <i data-lucide="ev-station" class="w-5 h-5 text-sipar-orange"></i>
+                    </div>
+                    <div>
+                        <h2 class="text-lg font-bold">SIPAR Luque Centro</h2>
+                        <p class="text-xs text-gray-400 font-mono">ID: S001038</p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-4">
+                    <span class="bg-green-500/20 text-green-400 px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 border border-green-500/30">
+                        <div class="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse"></div> En línea
+                    </span>
+                    <button onclick="closeModal('modal-detalles')" class="text-gray-400 hover:text-white transition"><i data-lucide="x" class="w-6 h-6"></i></button>
+                </div>
+            </div>
+            
+            <div class="p-6 grid grid-cols-2 gap-8">
+                <div>
+                    <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4">Información Técnica</h3>
+                    <ul class="space-y-3 text-sm">
+                        <li class="flex justify-between border-b border-gray-50 pb-2"><span class="text-gray-500">Fabricante:</span> <span class="font-bold text-sipar-dark">ABB Terra</span></li>
+                        <li class="flex justify-between border-b border-gray-50 pb-2"><span class="text-gray-500">Modelo:</span> <span class="font-bold text-sipar-dark">DC Fast 120</span></li>
+                        <li class="flex justify-between border-b border-gray-50 pb-2"><span class="text-gray-500">Firmware:</span> <span class="font-bold text-sipar-dark">v2.1.4</span></li>
+                        <li class="flex justify-between border-b border-gray-50 pb-2"><span class="text-gray-500">Último Heartbeat:</span> <span class="font-bold text-sipar-dark">Hace 2 min</span></li>
+                    </ul>
+                </div>
+                <div>
+                    <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4">Comandos Remotos (OCPP)</h3>
+                    <div class="grid gap-3">
+                        <button class="w-full flex items-center justify-between px-4 py-3 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-xl text-sipar-dark font-semibold text-sm transition">
+                            <span class="flex items-center gap-2"><i data-lucide="rotate-cw" class="w-4 h-4 text-gray-500"></i> Soft Reset</span>
+                            <i data-lucide="chevron-right" class="w-4 h-4 text-gray-400"></i>
+                        </button>
+                        <button class="w-full flex items-center justify-between px-4 py-3 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-xl text-sipar-dark font-semibold text-sm transition">
+                            <span class="flex items-center gap-2"><i data-lucide="unlock" class="w-4 h-4 text-gray-500"></i> Desbloquear Manguera</span>
+                            <i data-lucide="chevron-right" class="w-4 h-4 text-gray-400"></i>
+                        </button>
+                        <button class="w-full flex items-center justify-between px-4 py-3 bg-red-50 hover:bg-red-100 border border-red-200 rounded-xl text-red-600 font-semibold text-sm transition">
+                            <span class="flex items-center gap-2"><i data-lucide="power" class="w-4 h-4"></i> Hard Reset (Eléctrico)</span>
+                            <i data-lucide="chevron-right" class="w-4 h-4 text-red-400"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="px-6 py-4 bg-gray-50 border-t border-gray-100 flex justify-end">
+                <button onclick="closeModal('modal-detalles')" class="px-5 py-2.5 bg-white border border-gray-300 text-sipar-dark font-bold rounded-xl hover:bg-gray-100 transition shadow-sm">Cerrar Panel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal 3: GESTIÓN ADMINISTRADOR (ISO 27001) -->
+    <div id="modal-admin" class="fixed inset-0 z-[100] hidden items-center justify-center bg-sipar-dark/60 backdrop-blur-sm p-4">
+        <div class="bg-white rounded-[20px] w-full max-w-2xl shadow-2xl flex flex-col overflow-hidden modal-animate border border-gray-200">
+            <div class="px-6 py-5 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center font-bold text-sm">CM</div>
+                    <div>
+                        <h2 class="text-lg font-bold text-sipar-dark">Carlos Mendoza</h2>
+                        <p class="text-[11px] text-gray-500 font-mono">ID: ADM-9923 • Operador Comercial</p>
+                    </div>
+                </div>
+                <button onclick="closeModal('modal-admin')" class="text-gray-400 hover:text-sipar-dark transition"><i data-lucide="x" class="w-5 h-5"></i></button>
+            </div>
+            
+            <div class="p-6 grid grid-cols-2 gap-8 bg-white">
+                <div>
+                    <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4 flex items-center gap-2"><i data-lucide="shield-check" class="w-4 h-4 text-sipar-orange"></i> Auditoría & Accesos</h3>
+                    <ul class="space-y-3 text-sm">
+                        <li class="flex justify-between border-b border-gray-50 pb-2"><span class="text-gray-500">Último Acceso:</span> <span class="font-bold text-sipar-dark">Ayer, 14:30 hs</span></li>
+                        <li class="flex justify-between border-b border-gray-50 pb-2"><span class="text-gray-500">IP Registrada:</span> <span class="font-bold font-mono text-sipar-dark text-xs">190.128.xx.xx (PY)</span></li>
+                        <li class="flex justify-between border-b border-gray-50 pb-2"><span class="text-gray-500">Doble Factor (2FA):</span> <span class="font-bold text-red-500 flex items-center gap-1"><i data-lucide="x-circle" class="w-3 h-3"></i> Inactivo</span></li>
+                    </ul>
+                    <button class="mt-4 w-full bg-gray-50 border border-gray-200 text-sipar-dark py-2.5 rounded-xl text-xs font-bold hover:bg-gray-100 transition flex items-center justify-center gap-2">
+                        <i data-lucide="file-clock" class="w-4 h-4 text-gray-500"></i> Descargar Logs de Actividad
+                    </button>
+                </div>
+                
+                <div>
+                    <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4 flex items-center gap-2"><i data-lucide="lock" class="w-4 h-4 text-sipar-orange"></i> Controles de Seguridad</h3>
+                    <div class="grid gap-2.5">
+                        <button class="w-full flex items-center justify-between px-4 py-2.5 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-xl text-sipar-dark font-semibold text-xs transition">
+                            <span class="flex items-center gap-2"><i data-lucide="key" class="w-4 h-4 text-gray-500"></i> Forzar Cambio de Contraseña</span>
+                        </button>
+                        <button class="w-full flex items-center justify-between px-4 py-2.5 bg-orange-50 hover:bg-orange-100 border border-orange-200 rounded-xl text-orange-700 font-semibold text-xs transition">
+                            <span class="flex items-center gap-2"><i data-lucide="smartphone-nfc" class="w-4 h-4 text-orange-500"></i> Obligar activación 2FA</span>
+                        </button>
+                        <button class="w-full flex items-center justify-between px-4 py-2.5 bg-red-50 hover:bg-red-100 border border-red-200 rounded-xl text-red-600 font-semibold text-xs transition">
+                            <span class="flex items-center gap-2"><i data-lucide="log-out" class="w-4 h-4"></i> Revocar Sesiones Activas</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <div class="px-6 py-4 bg-gray-50 border-t border-gray-100 flex justify-between items-center">
+                <button class="text-red-500 text-xs font-bold hover:underline flex items-center gap-1"><i data-lucide="user-x" class="w-4 h-4"></i> Suspender Cuenta</button>
+                <button onclick="closeModal('modal-admin')" class="px-5 py-2.5 bg-sipar-dark text-white font-bold rounded-xl shadow-sm text-sm hover:bg-gray-800 transition">Cerrar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal 4: GESTIÓN CONDUCTOR (APP) -->
+    <div id="modal-conductor" class="fixed inset-0 z-[100] hidden items-center justify-center bg-sipar-dark/60 backdrop-blur-sm p-4">
+        <div class="bg-white rounded-[20px] w-full max-w-2xl shadow-2xl flex flex-col overflow-hidden modal-animate border border-gray-200">
+            <div class="px-6 py-5 border-b border-gray-100 flex justify-between items-center bg-sipar-dark text-white">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 bg-gray-700 rounded-full flex items-center justify-center font-bold text-sm"><i data-lucide="user" class="w-5 h-5"></i></div>
+                    <div>
+                        <h2 class="text-lg font-bold">Juan Pérez</h2>
+                        <p class="text-[11px] text-gray-300 font-mono">juan@mail.com • Registrado: Ene 2026</p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-3">
+                    <span class="bg-green-500/20 text-green-400 px-2.5 py-1 rounded text-[10px] font-bold border border-green-500/30 flex items-center gap-1"><i data-lucide="shield-check" class="w-3 h-3"></i> KYC Validado</span>
+                    <button onclick="closeModal('modal-conductor')" class="text-gray-400 hover:text-white transition"><i data-lucide="x" class="w-5 h-5"></i></button>
+                </div>
+            </div>
+            
+            <div class="p-6 grid grid-cols-2 gap-8 bg-white">
+                <div>
+                    <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4 flex items-center gap-2"><i data-lucide="wallet" class="w-4 h-4 text-sipar-orange"></i> Estado de Cuenta</h3>
+                    <ul class="space-y-3 text-sm">
+                        <li class="flex justify-between border-b border-gray-50 pb-2"><span class="text-gray-500">Saldo Actual:</span> <span class="font-bold text-sipar-dark text-lg">150.000 ₲</span></li>
+                        <li class="flex justify-between border-b border-gray-50 pb-2"><span class="text-gray-500">Vehículo Princ.:</span> <span class="font-bold text-sipar-dark">BYD Dolphin (AAA 123)</span></li>
+                        <li class="flex justify-between border-b border-gray-50 pb-2"><span class="text-gray-500">Última Carga:</span> <span class="font-bold text-sipar-dark">Hace 3 días</span></li>
+                    </ul>
+                </div>
+                
+                <div>
+                    <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4 flex items-center gap-2"><i data-lucide="shield-alert" class="w-4 h-4 text-red-500"></i> Prevención & Seguridad</h3>
+                    <div class="grid gap-2.5">
+                        <button class="w-full flex items-center justify-between px-4 py-2.5 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-xl text-sipar-dark font-semibold text-xs transition">
+                            <span class="flex items-center gap-2"><i data-lucide="snowflake" class="w-4 h-4 text-blue-500"></i> Congelar Billetera (Prevenir cobros)</span>
+                        </button>
+                        <button class="w-full flex items-center justify-between px-4 py-2.5 bg-red-50 hover:bg-red-100 border border-red-200 rounded-xl text-red-600 font-semibold text-xs transition">
+                            <span class="flex items-center gap-2"><i data-lucide="ban" class="w-4 h-4"></i> Bloquear Usuario (Act. Sospechosa)</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <div class="px-6 py-4 bg-gray-50 border-t border-gray-100 flex justify-end gap-3">
+                <button class="px-4 py-2.5 bg-white border border-gray-300 text-sipar-dark font-bold rounded-xl text-xs hover:bg-gray-100 shadow-sm transition"><i data-lucide="download" class="w-3.5 h-3.5 inline mr-1"></i> Exportar Datos (Privacidad)</button>
+                <button onclick="closeModal('modal-conductor')" class="px-5 py-2.5 bg-sipar-dark text-white font-bold rounded-xl shadow-sm text-sm hover:bg-gray-800 transition">Cerrar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal 5: GESTIÓN DE FINANZAS & REEMBOLSOS -->
+    <div id="modal-finanzas" class="fixed inset-0 z-[100] hidden items-center justify-center bg-sipar-dark/60 backdrop-blur-sm p-4">
+        <div class="bg-white rounded-[20px] w-full max-w-2xl shadow-2xl flex flex-col overflow-hidden modal-animate border border-gray-200">
+            <div class="px-6 py-5 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+                <div>
+                    <h2 class="text-lg font-bold text-sipar-dark flex items-center gap-2">
+                        <i data-lucide="file-warning" class="w-5 h-5 text-red-500"></i> Revisión de Disputa / Queja
+                    </h2>
+                    <p class="text-[11px] text-gray-500 font-mono mt-1">Transacción #TRX-98237</p>
+                </div>
+                <button onclick="closeModal('modal-finanzas')" class="text-gray-400 hover:text-red-500 transition"><i data-lucide="x" class="w-5 h-5"></i></button>
+            </div>
+            
+            <div class="p-6">
+                <div class="bg-red-50 border border-red-100 rounded-xl p-4 mb-6">
+                    <p class="text-sm text-red-800 font-semibold mb-1">Motivo reportado por el cliente (Juan Pérez):</p>
+                    <p class="text-sm text-red-600 italic">"El cargador de la Conmebol cortó la carga a los 5 minutos pero me descontó 85.000 Gs."</p>
+                </div>
+
+                <div class="grid grid-cols-2 gap-8 mb-6">
+                    <div>
+                        <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Datos del Cobro</h3>
+                        <ul class="space-y-2 text-sm">
+                            <li class="flex justify-between border-b border-gray-50 pb-1"><span class="text-gray-500">Monto Dededucido:</span> <span class="font-bold text-sipar-dark">85.000 ₲</span></li>
+                            <li class="flex justify-between border-b border-gray-50 pb-1"><span class="text-gray-500">Energía (Supuesta):</span> <span class="font-bold text-sipar-dark">34.0 kWh</span></li>
+                        </ul>
+                    </div>
+                    <div>
+                        <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Datos Reales del Hardware</h3>
+                        <ul class="space-y-2 text-sm">
+                            <li class="flex justify-between border-b border-gray-50 pb-1"><span class="text-gray-500">Duración Sesión:</span> <span class="font-bold text-sipar-dark">00:05:22</span></li>
+                            <li class="flex justify-between border-b border-gray-50 pb-1"><span class="text-gray-500">Energía Entregada:</span> <span class="font-bold text-sipar-dark">4.2 kWh</span></li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="flex gap-4">
+                    <button onclick="closeModal('modal-finanzas')" class="flex-1 py-3 bg-white border border-gray-300 text-gray-600 font-bold rounded-xl hover:bg-gray-50 shadow-sm transition flex items-center justify-center gap-2">
+                        <i data-lucide="ban" class="w-4 h-4"></i> Rechazar Queja
+                    </button>
+                    <button onclick="closeModal('modal-finanzas')" class="flex-1 py-3 bg-gradient-to-br from-green-500 to-green-600 text-white font-bold rounded-xl shadow-[0_4px_15px_rgba(34,197,94,0.3)] hover:opacity-90 transition flex items-center justify-center gap-2">
+                        <i data-lucide="corner-down-left" class="w-4 h-4"></i> Aprobar Reembolso Parcial (74.500 ₲)
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal 6: EDICIÓN DE TARIFA -->
+    <div id="modal-tarifa" class="fixed inset-0 z-[100] hidden items-center justify-center bg-sipar-dark/60 backdrop-blur-sm p-4">
+        <div class="bg-white rounded-[20px] w-full max-w-lg shadow-2xl flex flex-col overflow-hidden modal-animate border border-gray-200">
+            <div class="px-6 py-5 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+                <h2 class="text-lg font-bold text-sipar-dark flex items-center gap-2">
+                    <i data-lucide="sliders" class="w-5 h-5 text-sipar-orange"></i> Configuración de Tarifa
+                </h2>
+                <button onclick="closeModal('modal-tarifa')" class="text-gray-400 hover:text-red-500 transition"><i data-lucide="x" class="w-5 h-5"></i></button>
+            </div>
+            
+            <div class="p-6">
+                <form>
+                    <div class="mb-4">
+                        <label class="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Nombre del Perfil de Venta</label>
+                        <input type="text" value="Tarifa Base (Luque)" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm text-sipar-dark font-bold focus:outline-none focus:ring-2 focus:ring-sipar-orange transition">
+                    </div>
+                    
+                    <div class="grid grid-cols-2 gap-4 mb-4">
+                        <div>
+                            <label class="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Precio / kWh</label>
+                            <div class="relative">
+                                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                    <span class="text-gray-500 font-bold">₲</span>
+                                </div>
+                                <input type="number" value="2500" class="w-full pl-8 pr-3 py-2.5 border border-gray-300 rounded-lg text-sm text-sipar-dark font-bold focus:outline-none focus:ring-2 focus:ring-sipar-orange transition">
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Costo Conexión</label>
+                            <div class="relative">
+                                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                    <span class="text-gray-500 font-bold">₲</span>
+                                </div>
+                                <input type="number" value="0" class="w-full pl-8 pr-3 py-2.5 border border-gray-300 rounded-lg text-sm text-sipar-dark font-bold focus:outline-none focus:ring-2 focus:ring-sipar-orange transition">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mb-6 bg-red-50 border border-red-100 rounded-xl p-4">
+                        <label class="block text-[11px] font-bold text-red-600 uppercase tracking-wide mb-2 flex items-center gap-1.5"><i data-lucide="lock" class="w-3.5 h-3.5"></i> PIN de Autorización (ISO 27001)</label>
+                        <input type="password" placeholder="Ingrese su PIN administrativo" class="w-full px-4 py-2.5 border border-red-200 rounded-lg text-sm text-sipar-dark focus:outline-none focus:ring-2 focus:ring-red-400 transition bg-white">
+                        <p class="text-[10px] text-red-500 mt-1.5">Requerido para registrar cambios financieros en auditoría.</p>
+                    </div>
+
+                    <div class="flex gap-3">
+                        <button type="button" onclick="closeModal('modal-tarifa')" class="flex-1 py-3 bg-gray-100 text-gray-600 font-bold rounded-xl hover:bg-gray-200 transition">Cancelar</button>
+                        <button type="button" onclick="closeModal('modal-tarifa')" class="flex-1 py-3 bg-sipar-orange text-white font-bold rounded-xl shadow-[0_4px_15px_rgba(255,158,0,0.3)] hover:opacity-90 transition flex items-center justify-center gap-2">
+                            <i data-lucide="save" class="w-4 h-4"></i> Guardar Tarifa
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal 7: NUEVO / EDITAR PRODUCTO TIENDA -->
+    <div id="modal-producto" class="fixed inset-0 z-[100] hidden items-center justify-center bg-sipar-dark/60 backdrop-blur-sm p-4">
+        <div class="bg-white rounded-[20px] w-full max-w-lg shadow-2xl flex flex-col overflow-hidden modal-animate border border-gray-200">
+            <div class="px-6 py-5 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+                <h2 class="text-lg font-bold text-sipar-dark flex items-center gap-2">
+                    <i data-lucide="package-plus" class="w-5 h-5 text-sipar-orange"></i> Formulario de Accesorio
+                </h2>
+                <button onclick="closeModal('modal-producto')" class="text-gray-400 hover:text-red-500 transition"><i data-lucide="x" class="w-5 h-5"></i></button>
+            </div>
+            
+            <div class="p-6">
+                <form>
+                    <div class="mb-4">
+                        <label class="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Nombre del Producto</label>
+                        <input type="text" placeholder="Ej. Cable Tipo 2 a Tipo 2" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm text-sipar-dark focus:outline-none focus:ring-2 focus:ring-sipar-orange transition">
+                    </div>
+                    
+                    <div class="grid grid-cols-2 gap-4 mb-4">
+                        <div>
+                            <label class="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">SKU (Código)</label>
+                            <input type="text" placeholder="ACC-004" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm text-sipar-dark font-mono focus:outline-none focus:ring-2 focus:ring-sipar-orange transition">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Precio de Venta</label>
+                            <div class="relative">
+                                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none"><span class="text-gray-500 font-bold">₲</span></div>
+                                <input type="number" placeholder="0" class="w-full pl-8 pr-3 py-2.5 border border-gray-300 rounded-lg text-sm text-sipar-dark font-bold focus:outline-none focus:ring-2 focus:ring-sipar-orange transition">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mb-8">
+                        <label class="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Fotografía (App Móvil)</label>
+                        <div class="border-2 border-dashed border-gray-300 rounded-xl p-6 flex flex-col items-center justify-center bg-gray-50 hover:bg-gray-100 transition cursor-pointer">
+                            <i data-lucide="image-plus" class="w-8 h-8 text-gray-400 mb-2"></i>
+                            <p class="text-xs font-semibold text-gray-500">Haz clic para subir una imagen JPG/PNG</p>
+                        </div>
+                    </div>
+
+                    <div class="flex gap-3">
+                        <button type="button" onclick="closeModal('modal-producto')" class="flex-1 py-3 bg-gray-100 text-gray-600 font-bold rounded-xl hover:bg-gray-200 transition">Cancelar</button>
+                        <button type="button" onclick="closeModal('modal-producto')" class="flex-1 py-3 bg-sipar-dark text-white font-bold rounded-xl shadow-md hover:bg-gray-800 transition flex items-center justify-center gap-2">
+                            <i data-lucide="save" class="w-4 h-4"></i> Guardar Producto
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal 8: ACTUALIZAR STOCK -->
+    <div id="modal-stock" class="fixed inset-0 z-[100] hidden items-center justify-center bg-sipar-dark/60 backdrop-blur-sm p-4">
+        <div class="bg-white rounded-[20px] w-full max-w-sm shadow-2xl flex flex-col overflow-hidden modal-animate border border-gray-200">
+            <div class="px-6 py-5 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+                <h2 class="text-lg font-bold text-sipar-dark flex items-center gap-2">
+                    <i data-lucide="boxes" class="w-5 h-5 text-sipar-orange"></i> Ajuste de Stock
+                </h2>
+                <button onclick="closeModal('modal-stock')" class="text-gray-400 hover:text-red-500 transition"><i data-lucide="x" class="w-5 h-5"></i></button>
+            </div>
+            
+            <div class="p-6">
+                <form>
+                    <div class="mb-5">
+                        <p class="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1">Producto Seleccionado</p>
+                        <p class="text-[14px] font-bold text-sipar-dark">Adaptador CCS2 a CHAdeMO</p>
+                        <p class="text-[12px] text-green-600 font-semibold mt-1">Stock Actual: 12 unidades</p>
+                    </div>
+                    
+                    <div class="mb-5">
+                        <label class="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Tipo de Movimiento</label>
+                        <div class="flex gap-2">
+                            <label class="flex-1">
+                                <input type="radio" name="movimiento" checked class="peer hidden">
+                                <div class="px-3 py-2 text-center rounded-lg border border-gray-200 text-gray-500 font-semibold text-xs peer-checked:bg-green-50 peer-checked:border-green-500 peer-checked:text-green-700 cursor-pointer transition">
+                                    <i data-lucide="plus" class="w-3 h-3 inline"></i> Ingreso
+                                </div>
+                            </label>
+                            <label class="flex-1">
+                                <input type="radio" name="movimiento" class="peer hidden">
+                                <div class="px-3 py-2 text-center rounded-lg border border-gray-200 text-gray-500 font-semibold text-xs peer-checked:bg-red-50 peer-checked:border-red-500 peer-checked:text-red-700 cursor-pointer transition">
+                                    <i data-lucide="minus" class="w-3 h-3 inline"></i> Salida / Merma
+                                </div>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="mb-6">
+                        <label class="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Cantidad a ajustar</label>
+                        <input type="number" value="1" min="1" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-lg text-center text-sipar-dark font-bold focus:outline-none focus:ring-2 focus:ring-sipar-orange transition">
+                    </div>
+
+                    <div class="flex gap-3">
+                        <button type="button" onclick="closeModal('modal-stock')" class="w-full py-3 bg-sipar-orange text-white font-bold rounded-xl shadow-[0_4px_15px_rgba(255,158,0,0.3)] hover:opacity-90 transition flex items-center justify-center gap-2">
+                            <i data-lucide="check" class="w-4 h-4"></i> Confirmar Ajuste
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal 9: CREAR/EDITAR ROL (RBAC) -->
+    <div id="modal-roles" class="fixed inset-0 z-[100] hidden items-center justify-center bg-sipar-dark/60 backdrop-blur-sm p-4">
+        <div class="bg-white rounded-[20px] w-full max-w-lg shadow-2xl flex flex-col overflow-hidden modal-animate border border-gray-200">
+            <div class="px-6 py-5 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+                <h2 class="text-lg font-bold text-sipar-dark flex items-center gap-2">
+                    <i data-lucide="user-cog" class="w-5 h-5 text-sipar-orange"></i> Permisos del Rol
+                </h2>
+                <button onclick="closeModal('modal-roles')" class="text-gray-400 hover:text-red-500 transition"><i data-lucide="x" class="w-5 h-5"></i></button>
+            </div>
+            <div class="p-6">
+                <form>
+                    <div class="mb-6">
+                        <label class="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Nombre del Rol</label>
+                        <input type="text" value="Soporte Técnico" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm text-sipar-dark font-bold focus:outline-none focus:ring-2 focus:ring-sipar-orange transition">
+                    </div>
+                    
+                    <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Módulos y Permisos</h3>
+                    
+                    <!-- Matriz de permisos -->
+                    <div class="border border-gray-200 rounded-xl overflow-hidden mb-6">
+                        <!-- Fila 1 -->
+                        <div class="flex items-center justify-between p-3 border-b border-gray-100 bg-white hover:bg-gray-50 transition">
+                            <p class="text-sm font-bold text-sipar-dark">Red de Cargadores</p>
+                            <div class="flex gap-4">
+                                <label class="flex items-center gap-1.5 cursor-pointer">
+                                    <input type="checkbox" checked class="w-3.5 h-3.5 text-sipar-orange rounded focus:ring-sipar-orange accent-sipar-orange">
+                                    <span class="text-xs font-medium text-gray-600">Ver</span>
+                                </label>
+                                <label class="flex items-center gap-1.5 cursor-pointer">
+                                    <input type="checkbox" checked class="w-3.5 h-3.5 text-sipar-orange rounded focus:ring-sipar-orange accent-sipar-orange">
+                                    <span class="text-xs font-medium text-gray-600">Editar</span>
+                                </label>
+                            </div>
+                        </div>
+                        <!-- Fila 2 -->
+                        <div class="flex items-center justify-between p-3 border-b border-gray-100 bg-white hover:bg-gray-50 transition">
+                            <p class="text-sm font-bold text-sipar-dark">Usuarios & Flota</p>
+                            <div class="flex gap-4">
+                                <label class="flex items-center gap-1.5 cursor-pointer">
+                                    <input type="checkbox" checked class="w-3.5 h-3.5 text-sipar-orange rounded focus:ring-sipar-orange accent-sipar-orange">
+                                    <span class="text-xs font-medium text-gray-600">Ver</span>
+                                </label>
+                                <label class="flex items-center gap-1.5 cursor-pointer">
+                                    <input type="checkbox" class="w-3.5 h-3.5 text-sipar-orange rounded focus:ring-sipar-orange accent-sipar-orange">
+                                    <span class="text-xs font-medium text-gray-600">Editar</span>
+                                </label>
+                            </div>
+                        </div>
+                        <!-- Fila 3 -->
+                        <div class="flex items-center justify-between p-3 border-b border-gray-100 bg-white hover:bg-gray-50 transition">
+                            <p class="text-sm font-bold text-sipar-dark">Finanzas & Conciliación</p>
+                            <div class="flex gap-4">
+                                <label class="flex items-center gap-1.5 cursor-pointer">
+                                    <input type="checkbox" class="w-3.5 h-3.5 text-sipar-orange rounded focus:ring-sipar-orange accent-sipar-orange">
+                                    <span class="text-xs font-medium text-gray-600">Ver</span>
+                                </label>
+                                <label class="flex items-center gap-1.5 cursor-pointer">
+                                    <input type="checkbox" class="w-3.5 h-3.5 text-sipar-orange rounded focus:ring-sipar-orange accent-sipar-orange">
+                                    <span class="text-xs font-medium text-gray-600">Editar</span>
+                                </label>
+                            </div>
+                        </div>
+                        <!-- Fila 4 -->
+                        <div class="flex items-center justify-between p-3 bg-white hover:bg-gray-50 transition">
+                            <p class="text-sm font-bold text-sipar-dark">Configuración (Admin)</p>
+                            <div class="flex gap-4">
+                                <label class="flex items-center gap-1.5 cursor-pointer">
+                                    <input type="checkbox" class="w-3.5 h-3.5 text-sipar-orange rounded focus:ring-sipar-orange accent-sipar-orange">
+                                    <span class="text-xs font-medium text-gray-600">Ver</span>
+                                </label>
+                                <label class="flex items-center gap-1.5 cursor-pointer">
+                                    <input type="checkbox" class="w-3.5 h-3.5 text-sipar-orange rounded focus:ring-sipar-orange accent-sipar-orange">
+                                    <span class="text-xs font-medium text-gray-600">Editar</span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="flex gap-3">
+                        <button type="button" onclick="closeModal('modal-roles')" class="flex-1 py-3 bg-gray-100 text-gray-600 font-bold rounded-xl hover:bg-gray-200 transition">Cancelar</button>
+                        <button type="button" onclick="closeModal('modal-roles')" class="flex-1 py-3 bg-sipar-dark text-white font-bold rounded-xl shadow-md hover:bg-gray-800 transition flex items-center justify-center gap-2">
+                            <i data-lucide="save" class="w-4 h-4"></i> Guardar Permisos
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Leaflet JS & Inicialización General -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        // Iniciar Iconos
+        lucide.createIcons();
+
+        // Control de Modales
+        function openModal(modalId) {
+            const modal = document.getElementById(modalId);
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+            lucide.createIcons();
+            
+            // Cerrar menú notificaciones si está abierto
+            const panel = document.getElementById('panel-notificaciones');
+            if(panel && !panel.classList.contains('hidden')) {
+                panel.classList.add('hidden');
+                panel.classList.remove('flex');
+            }
+        }
+
+        function closeModal(modalId) {
+            const modal = document.getElementById(modalId);
+            modal.classList.remove('flex');
+            modal.classList.add('hidden');
+        }
+
+        // Toggle del panel de notificaciones (Campana)
+        function toggleNotificaciones() {
+            const panel = document.getElementById('panel-notificaciones');
+            if (panel.classList.contains('hidden')) {
+                panel.classList.remove('hidden');
+                panel.classList.add('flex');
+            } else {
+                panel.classList.add('hidden');
+                panel.classList.remove('flex');
+            }
+        }
+
+        // Cierra notificaciones al hacer clic fuera del panel (en main)
+        function cerrarPanelNotificaciones() {
+            const panel = document.getElementById('panel-notificaciones');
+            if(panel && !panel.classList.contains('hidden')) {
+                panel.classList.add('hidden');
+                panel.classList.remove('flex');
+            }
+        }
+
+        // Cierra modales al dar clic en el fondo gris oscuro
+        ['modal-nuevo', 'modal-detalles', 'modal-admin', 'modal-conductor', 'modal-finanzas', 'modal-tarifa', 'modal-producto', 'modal-stock', 'modal-roles'].forEach(id => {
+            const modal = document.getElementById(id);
+            if(modal) {
+                modal.addEventListener('click', function(e) {
+                    if (e.target === this) closeModal(id);
+                });
+            }
+        });
+
+        // Configuración y Renderizado del Mapa Leaflet
+        let map;
+        function initAdminMap() {
+            if (map) return; // Evita reinicializar el mapa
+
+            const centerPos = [-25.2667, -57.4833]; // Luque
+            map = L.map('admin-map', { zoomControl: false, attributionControl: false }).setView(centerPos, 13);
+            
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+                maxZoom: 19
+            }).addTo(map);
+
+            function createAdminMarker(id, statusColor) {
+                return L.divIcon({
+                    className: 'bg-transparent',
+                    html: `
+                    <div class="admin-marker">
+                        <div class="w-2 h-2 rounded-full ${statusColor} animate-pulse mr-1"></div>
+                        ${id}
+                    </div>`,
+                    iconSize: [80, 30], iconAnchor: [40, 30], popupAnchor: [0, -35]
+                });
+            }
+
+            const chargers = [
+                { lat: -25.2667, lng: -57.4833, name: "SIPAR Luque Centro", id: "S001038", statusColor: "bg-blue-500", statusText: "En Uso (Manguera 1)", pwr: "120 kW" },
+                { lat: -25.2750, lng: -57.4950, name: "SIPAR Conmebol", id: "S001039", statusColor: "bg-green-500", statusText: "Disponible (Ambas)", pwr: "60 kW" },
+                { lat: -25.2400, lng: -57.5100, name: "SIPAR Aeropuerto", id: "S001040", statusColor: "bg-red-500", statusText: "Desconectado", pwr: "50 kW" }
+            ];
+
+            chargers.forEach(ch => {
+                let marker = L.marker([ch.lat, ch.lng], {icon: createAdminMarker(ch.id, ch.statusColor)}).addTo(map);
+                
+                // Contenido del Popup al hacer clic
+                const popupContent = `
+                    <div class="p-3 bg-white">
+                        <div class="flex items-center gap-2 mb-2 pb-2 border-b border-gray-100">
+                            <div class="w-8 h-8 bg-gray-50 rounded-lg flex items-center justify-center text-sipar-dark">
+                                <i data-lucide="ev-station" class="w-4 h-4"></i>
+                            </div>
+                            <div>
+                                <p class="text-[13px] font-bold text-sipar-dark leading-tight">${ch.name}</p>
+                                <p class="text-[10px] text-gray-500 font-mono">${ch.id} • ${ch.pwr}</p>
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-2 mt-2">
+                            <div class="w-2 h-2 rounded-full ${ch.statusColor}"></div>
+                            <p class="text-[11px] font-bold text-gray-700">${ch.statusText}</p>
+                        </div>
+                        <button onclick="openModal('modal-detalles')" class="mt-3 w-full bg-sipar-dark text-white text-[11px] font-bold py-1.5 rounded-md hover:bg-gray-800 transition">Ver Diagnóstico</button>
+                    </div>
+                `;
+                
+                marker.bindPopup(popupContent);
+                
+                // Actualiza iconos Lucide dentro del popup al abrirse
+                marker.on('popupopen', function() {
+                    lucide.createIcons();
+                });
+            });
+        }
+
+        // Navegación principal del Menú Lateral
+        function switchTab(tab) {
+            cerrarPanelNotificaciones();
+            
+            const views = {
+                'dashboard': document.getElementById('view-dashboard'),
+                'cargadores': document.getElementById('view-cargadores'),
+                'usuarios': document.getElementById('view-usuarios'),
+                'finanzas': document.getElementById('view-finanzas'),
+                'parametros': document.getElementById('view-parametros'),
+                'tienda': document.getElementById('view-tienda'),
+                'configuracion': document.getElementById('view-configuracion')
+            };
+            
+            const navs = {
+                'dashboard': document.getElementById('nav-dashboard'),
+                'cargadores': document.getElementById('nav-cargadores'),
+                'usuarios': document.getElementById('nav-usuarios'),
+                'finanzas': document.getElementById('nav-finanzas'),
+                'parametros': document.getElementById('nav-parametros'),
+                'tienda': document.getElementById('nav-tienda'),
+                'configuracion': document.getElementById('nav-configuracion')
+            };
+            
+            const headerTitle = document.getElementById('header-title');
+            const inactiveClass = "flex items-center gap-3 w-full px-3 py-2.5 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg font-medium transition";
+            const activeClass = "flex items-center gap-3 w-full px-3 py-2.5 bg-sipar-orange text-white rounded-lg font-semibold transition";
+
+            Object.values(views).forEach(v => {
+                if(v) {
+                    v.classList.remove('block');
+                    v.classList.add('hidden');
+                }
+            });
+            Object.values(navs).forEach(n => {
+                if(n) n.className = inactiveClass;
+            });
+
+            if(views[tab]) {
+                views[tab].classList.remove('hidden');
+                views[tab].classList.add('block');
+            }
+            if(navs[tab]) navs[tab].className = activeClass;
+
+            const titles = {
+                'dashboard': 'Centro de Operaciones',
+                'cargadores': 'Gestión de Red de Cargadores',
+                'usuarios': 'Gestión de Usuarios & Flota',
+                'finanzas': 'Finanzas & Conciliación',
+                'parametros': 'Tarifas & Parámetros',
+                'tienda': 'Gestión de Tienda & Accesorios',
+                'configuracion': 'Configuración del Sistema'
+            };
+            if(headerTitle) headerTitle.innerText = titles[tab];
+
+            // Renderiza el mapa si se activa la vista Dashboard
+            if(tab === 'dashboard') {
+                setTimeout(() => {
+                    initAdminMap();
+                    if(map) map.invalidateSize();
+                }, 100);
+            }
+        }
+
+        // Inicializar Dashboard por defecto
+        switchTab('dashboard');
+    </script>
+</body>
+</html>
