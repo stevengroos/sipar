@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import List
+import os
 
 class Settings(BaseSettings):
     PROJECT_NAME: str = "SIPAR Core API"
@@ -16,7 +17,7 @@ class Settings(BaseSettings):
     DATABASE_URL: str
 
     # CORS
-    CORS_ORIGINS: List[str] = ["http://localhost:5173"]
+    CORS_ORIGINS: List[str] = ["http://localhost:5173", "https://sipar-bay.vercel.app",]
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
