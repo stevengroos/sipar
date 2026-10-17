@@ -108,7 +108,12 @@ class ChargePointHandler(cp):
 # RUTA WEBSOCKET (Conexión física)
 @router.websocket("/{charge_point_id}")
 async def ocpp_endpoint(websocket: WebSocket, charge_point_id: str):
-    await websocket.accept()
+    # Validamos y aceptamos el subprotocolo OCPP si el cargador lo envía
+    subprotocol = websocket.headers.get("sec-websocket-protocol")
+    if subprotocol:
+        await websocket.accept(subprotocol=subprotocol)
+    else:
+        await websocket.accept()
     
     adapter = FastAPIWebsocketAdapter(websocket)
     cp_handler = ChargePointHandler(charge_point_id, adapter)
@@ -124,7 +129,7 @@ async def ocpp_endpoint(websocket: WebSocket, charge_point_id: str):
     finally:
         if charge_point_id in conexiones_activas:
             del conexiones_activas[charge_point_id]
-
+            
 # ==============================================================
 # NUEVAS RUTAS API REST (Para que las consuma el Frontend React)
 # ==============================================================
