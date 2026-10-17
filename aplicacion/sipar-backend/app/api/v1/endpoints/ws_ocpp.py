@@ -106,7 +106,7 @@ class ChargePointHandler(cp):
    
 
 # RUTA WEBSOCKET (Conexión física)
-@router.websocket("//{charge_point_id}")
+@router.websocket("/{charge_point_id}")
 async def ocpp_endpoint(websocket: WebSocket, charge_point_id: str):
     # Validamos y aceptamos el subprotocolo OCPP si el cargador lo envía
     subprotocol = websocket.headers.get("sec-websocket-protocol")
