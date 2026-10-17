@@ -1,11 +1,11 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, HTTPException
 import logging
 from datetime import datetime, timezone
-import time  # <-- NUEVA IMPORTACIÓN PARA GENERAR ID DE TRANSACCIÓN
+import time  # <-- IMPORTACIÓN PARA GENERAR ID DE TRANSACCIÓN
 
 from ocpp.routing import on
 from ocpp.v16 import ChargePoint as cp
-from ocpp.v16.enums import RegistrationStatus, AuthorizationStatus  # <-- NUEVA IMPORTACIÓN PARA AUTORIZAR LA CARGA
+from ocpp.v16.enums import RegistrationStatus, AuthorizationStatus  # <-- IMPORTACIÓN PARA AUTORIZAR LA CARGA
 from ocpp.v16 import call_result, call
 
 from app.db.session import SessionLocal # Usamos SessionLocal para conexiones seguras en segundo plano
@@ -153,6 +153,21 @@ async def ocpp_endpoint(websocket: WebSocket, charge_point_id: str):
         await cp_handler.start()
     except WebSocketDisconnect:
         logger.warning(f"🔴 Cargador {charge_point_id} desconectado físicamente.")
+        
+        # --- CÓDIGO AÑADIDO: Avisar a la base de datos de la desconexión ---
+        db = SessionLocal()
+        cargador = db.query(models.Charger).filter(models.Charger.serial_number == charge_point_id).first()
+        
+        if cargador:
+            # Buscamos todos los conectores de este cargador y los apagamos
+            conectores = db.query(models.Connector).filter_by(charger_id=cargador.id).all()
+            for conector in conectores:
+                conector.status = "fuera_de_linea"
+            
+            db.commit()
+        db.close()
+        # ------------------------------------------------------------------
+        
     finally:
         if charge_point_id in conexiones_activas:
             del conexiones_activas[charge_point_id]
