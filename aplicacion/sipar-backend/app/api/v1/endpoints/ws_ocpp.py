@@ -1,10 +1,11 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, HTTPException
 import logging
 from datetime import datetime, timezone
+import time  # <-- NUEVA IMPORTACIÓN PARA GENERAR ID DE TRANSACCIÓN
 
 from ocpp.routing import on
 from ocpp.v16 import ChargePoint as cp
-from ocpp.v16.enums import RegistrationStatus
+from ocpp.v16.enums import RegistrationStatus, AuthorizationStatus  # <-- NUEVA IMPORTACIÓN PARA AUTORIZAR LA CARGA
 from ocpp.v16 import call_result, call
 
 from app.db.session import SessionLocal # Usamos SessionLocal para conexiones seguras en segundo plano
@@ -103,7 +104,33 @@ class ChargePointHandler(cp):
         
         return call_result.StatusNotification()
 
-   
+    # ==============================================================
+    # 3. NUEVOS EVENTOS: Autorización de inicio y fin de carga
+    # ==============================================================
+    
+    @on('StartTransaction')
+    async def on_start_transaction(self, connector_id: int, id_tag: str, meter_start: int, timestamp: str, **kwargs):
+        logger.info(f"[{self.id}] Solicitud de inicio en conector {connector_id} con Tag: {id_tag}")
+        
+        # Generamos un ID de transacción numérico usando el tiempo actual (requerido por OCPP)
+        transaction_id = int(time.time())
+        
+        return call_result.StartTransaction(
+            transaction_id=transaction_id,
+            id_tag_info={
+                "status": AuthorizationStatus.accepted
+            }
+        )
+
+    @on('StopTransaction')
+    async def on_stop_transaction(self, meter_stop: int, timestamp: str, transaction_id: int, **kwargs):
+        logger.info(f"[{self.id}] Finalizando transacción {transaction_id}. Consumo: {meter_stop}")
+        
+        return call_result.StopTransaction(
+            id_tag_info={
+                "status": AuthorizationStatus.accepted
+            }
+        )
 
 # RUTA WEBSOCKET (Conexión física)
 @router.websocket("/{charge_point_id}")
