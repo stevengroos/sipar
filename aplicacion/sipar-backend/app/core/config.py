@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     DATABASE_URL: str
 
     # CORS
-    CORS_ORIGINS: List[str] = ["http://localhost:5173", "https://sipar-bay.vercel.app",]
+    CORS_ORIGINS: List[str] = ["*"],
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
