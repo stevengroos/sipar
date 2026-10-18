@@ -57,10 +57,11 @@ export default function Chargers() {
   useEffect(() => {
     fetchChargers();
     const interval = setInterval(() => {
-      if(!isDetailsOpen && !isModalOpen) fetchChargers(); // Evita re-renders extraños si un modal está abierto
+      // Quitamos la restricción "!isDetailsOpen" para que siga actualizando el modal en vivo
+      if(!isModalOpen) fetchChargers(); 
     }, 5000);
     return () => clearInterval(interval);
-  }, [isDetailsOpen, isModalOpen]);
+  }, [isModalOpen]); // Actualizamos la dependencia
 
   useEffect(() => {
     if (selectedCharger) {
