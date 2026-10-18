@@ -159,6 +159,7 @@ async def ocpp_endpoint(websocket: WebSocket, charge_point_id: str):
         cargador = db.query(models.Charger).filter(models.Charger.serial_number == charge_point_id).first()
         
         if cargador:
+            cargador.status = "fuera_de_linea" # <--- AGREGA ESTA LÍNEA
             # Buscamos todos los conectores de este cargador y los apagamos
             conectores = db.query(models.Connector).filter_by(charger_id=cargador.id).all()
             for conector in conectores:
