@@ -13,7 +13,7 @@ const defaultCenter = { lat: -25.270, lng: -57.520 };
 export default function Chargers() {
   const [chargers, setChargers] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState(''); // Estado para la búsqueda
+  const [searchTerm, setSearchTerm] = useState('');
   
   const { isLoaded: isMapLoaded } = useJsApiLoader({
     id: 'google-map-script',
@@ -21,7 +21,7 @@ export default function Chargers() {
   });
 
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isEditMode, setIsEditMode] = useState(false); // Para saber si el modal crea o edita
+  const [isEditMode, setIsEditMode] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [chargerToDelete, setChargerToDelete] = useState(null);
 
@@ -57,7 +57,6 @@ export default function Chargers() {
   useEffect(() => {
     fetchChargers();
     const interval = setInterval(() => {
-      // Sigue actualizando en vivo incluso con el modal de detalles abierto
       if(!isModalOpen) fetchChargers(); 
     }, 5000);
     return () => clearInterval(interval);
@@ -79,7 +78,6 @@ export default function Chargers() {
     setFormData({ ...formData, lat: e.latLng.lat(), lng: e.latLng.lng() });
   };
 
-  // Función combinada para Crear o Editar
   const handleSubmitCharger = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
@@ -97,7 +95,6 @@ export default function Chargers() {
       const payload = {
         serial_number: formData.serial_number,
         power_kw: parseFloat(formData.power_kw),
-        // Si es nuevo nace fuera_de_linea hasta que conecte por WebSocket; si edita mantiene su estado
         status: isEditMode && existingCharger ? existingCharger.status : "fuera_de_linea",
         company_id: 1,
         location: { lat: parseFloat(formData.lat), lng: parseFloat(formData.lng), address: formData.address }
@@ -124,7 +121,6 @@ export default function Chargers() {
 
   const handleEditClick = (charger) => {
     let lat = '', lng = '', address = '';
-    // Intenta parsear la ubicación si viene como string desde PostgreSQL
     if (charger.location) {
       let parsed = charger.location;
       if (typeof parsed === 'string') {
@@ -193,7 +189,6 @@ export default function Chargers() {
 
       const response = await api.post(endpoint, {}, { headers: { Authorization: `Bearer ${token}` } });
       showNotification('success', `El cargador respondió: "${response.data.respuesta_hardware || 'Comando aceptado'}"`);
-      // Refrescamos de inmediato para ver el cambio de estado
       setTimeout(() => fetchChargers(), 800);
     } catch (error) {
       showNotification('error', error.response?.data?.detail || 'El cargador no está conectado o rechazó la solicitud.');
@@ -202,7 +197,6 @@ export default function Chargers() {
     }
   };
 
-  // Filtrado en tiempo real basado en el estado searchTerm
   const filteredChargers = useMemo(() => {
     if (!searchTerm) return chargers;
     const lowerTerm = searchTerm.toLowerCase();
@@ -221,7 +215,6 @@ export default function Chargers() {
     );
   }
 
-  // Si el cargador general está fuera de línea, forzamos que la manguera también se muestre fuera de línea
   const activeConnectorData = selectedCharger?.connectors?.find(c => c.connector_id === activeConnector);
   const displayStatus = selectedCharger?.status === 'fuera_de_linea' 
     ? 'fuera_de_linea' 
@@ -233,11 +226,13 @@ export default function Chargers() {
       {/* NOTIFICACIÓN TOAST */}
       {notification.show && (
         <div className={`fixed top-6 right-6 z-[200] flex items-center gap-3 px-5 py-4 rounded-xl shadow-2xl animate-[slideDown_0.3s_ease-out] border ${
-          notification.type === 'success' ? 'bg-white border-green-200 text-green-700' : 'bg-white border-red-200 text-red-700'
+          notification.type === 'success' 
+            ? 'bg-white dark:bg-gray-900 border-green-200 dark:border-green-800 text-green-700 dark:text-green-400' 
+            : 'bg-white dark:bg-gray-900 border-red-200 dark:border-red-800 text-red-700 dark:text-red-400'
         }`}>
           {notification.type === 'success' ? <CheckCircle className="w-6 h-6 text-green-500" /> : <AlertCircle className="w-6 h-6 text-red-500" />}
           <div>
-            <p className="font-bold text-sm text-sipar-dark">
+            <p className="font-bold text-sm text-sipar-dark dark:text-white">
               {notification.type === 'success' ? 'Operación Exitosa' : 'Error en la operación'}
             </p>
             <p className="text-xs mt-0.5 opacity-90">{notification.message}</p>
@@ -249,10 +244,10 @@ export default function Chargers() {
       {/* CABECERA */}
       <div className="flex justify-between items-center mb-6">
         <div>
-          <h2 className="text-xl font-bold text-sipar-dark flex items-center gap-2">
+          <h2 className="text-xl font-bold text-sipar-dark dark:text-white flex items-center gap-2">
             <Zap className="w-6 h-6 text-sipar-orange" /> Red de Cargadores
           </h2>
-          <p className="text-sm text-gray-500 mt-1">Gestiona la infraestructura de carga y su estado operativo.</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Gestiona la infraestructura de carga y su estado operativo.</p>
         </div>
         <button 
           onClick={() => { setIsEditMode(false); setFormData({id: null, serial_number: '', power_kw: '', address: '', lat: '', lng: ''}); setIsModalOpen(true); }} 
@@ -263,7 +258,7 @@ export default function Chargers() {
       </div>
 
       {/* TABLA PRINCIPAL */}
-      <div className="bg-white rounded-[20px] shadow-[0_2px_15px_rgba(0,0,0,0.03)] border border-gray-100 overflow-hidden flex flex-col">
+      <div className="bg-white dark:bg-sipar-dark rounded-[20px] shadow-[0_2px_15px_rgba(0,0,0,0.03)] border border-gray-100 dark:border-gray-800 overflow-hidden flex flex-col transition-colors">
         <div className="bg-sipar-dark px-6 py-5 border-b border-gray-800 flex justify-between items-center">
           <h2 className="text-lg font-bold text-white flex items-center gap-2">
             <Zap className="w-5 h-5 text-sipar-orange" /> Inventario de Estaciones
@@ -285,7 +280,7 @@ export default function Chargers() {
         <div className="p-0 overflow-hidden">
           <table className="w-full text-left border-collapse">
             <thead>
-              <tr className="bg-gray-50 border-b border-gray-100 text-[11px] uppercase tracking-wider text-gray-500 font-bold">
+              <tr className="bg-gray-50 dark:bg-gray-900/50 border-b border-gray-100 dark:border-gray-800 text-[11px] uppercase tracking-wider text-gray-500 dark:text-gray-400 font-bold">
                 <th className="p-4 pl-6">ID / Serie</th>
                 <th className="p-4">Potencia</th>
                 <th className="p-4">Ubicación</th>
@@ -293,7 +288,7 @@ export default function Chargers() {
                 <th className="p-4 text-right pr-6">Acciones</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-50 text-sm">
+            <tbody className="divide-y divide-gray-50 dark:divide-gray-800 text-sm">
               {filteredChargers.length > 0 ? (
                 filteredChargers.map((charger) => {
                   let displayAddress = 'Sin dirección';
@@ -306,21 +301,21 @@ export default function Chargers() {
                   }
 
                   return (
-                    <tr key={charger.id} className="hover:bg-gray-50/50 transition">
+                    <tr key={charger.id} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/40 transition">
                       <td className="p-4 pl-6">
-                        <p className="font-bold text-sipar-dark">{charger.serial_number}</p>
+                        <p className="font-bold text-sipar-dark dark:text-white">{charger.serial_number}</p>
                         <p className="text-[11px] text-gray-400">ID: {charger.id}</p>
                       </td>
-                      <td className="p-4 font-bold text-gray-700">{charger.power_kw} kW</td>
+                      <td className="p-4 font-bold text-gray-700 dark:text-gray-300">{charger.power_kw} kW</td>
                       <td className="p-4">
-                        <p className="text-gray-600 flex items-center gap-1.5 text-[13px] max-w-[250px] truncate" title={displayAddress}>
+                        <p className="text-gray-600 dark:text-gray-400 flex items-center gap-1.5 text-[13px] max-w-[250px] truncate" title={displayAddress}>
                           <MapPin className="w-3.5 h-3.5 text-gray-400 shrink-0" /> {displayAddress}
                         </p>
                       </td>
                       <td className="p-4">
                         <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold flex items-center w-max gap-1.5 ${
-                            charger.status === 'disponible' ? 'bg-green-100 text-green-700' :
-                            charger.status === 'en_uso' ? 'bg-blue-100 text-blue-700' : 'bg-red-100 text-red-700'
+                            charger.status === 'disponible' ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' :
+                            charger.status === 'en_uso' ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400' : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
                         }`}>
                           <div className={`w-1.5 h-1.5 rounded-full animate-pulse ${
                               charger.status === 'disponible' ? 'bg-green-500' :
@@ -330,13 +325,13 @@ export default function Chargers() {
                         </span>
                       </td>
                       <td className="p-4 text-right pr-6 flex justify-end gap-2">
-                        <button onClick={() => openDetails(charger)} className="p-1.5 bg-white border border-gray-200 text-gray-500 rounded-lg hover:bg-gray-50 hover:text-sipar-dark shadow-sm transition" title="Ver Diagnóstico">
+                        <button onClick={() => openDetails(charger)} className="p-1.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 hover:text-sipar-dark dark:hover:text-white shadow-sm transition" title="Ver Diagnóstico">
                           <Eye className="w-4 h-4" />
                         </button>
-                        <button onClick={() => handleEditClick(charger)} className="p-1.5 bg-white border border-gray-200 text-gray-500 rounded-lg hover:bg-blue-50 hover:text-blue-600 shadow-sm transition" title="Editar Equipo">
+                        <button onClick={() => handleEditClick(charger)} className="p-1.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-300 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/30 hover:text-blue-600 dark:hover:text-blue-400 shadow-sm transition" title="Editar Equipo">
                           <Edit className="w-4 h-4" />
                         </button>
-                        <button onClick={() => { setChargerToDelete(charger); setIsDeleteModalOpen(true); }} className="p-1.5 bg-white border border-gray-200 text-gray-500 rounded-lg hover:bg-red-50 hover:text-red-600 shadow-sm transition" title="Eliminar Equipo">
+                        <button onClick={() => { setChargerToDelete(charger); setIsDeleteModalOpen(true); }} className="p-1.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-300 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/30 hover:text-red-600 dark:hover:text-red-400 shadow-sm transition" title="Eliminar Equipo">
                           <Trash2 className="w-4 h-4" />
                         </button>
                       </td>
@@ -345,7 +340,7 @@ export default function Chargers() {
                 })
               ) : (
                 <tr>
-                  <td colSpan="5" className="p-8 text-center text-gray-400">No se encontraron cargadores con ese filtro.</td>
+                  <td colSpan="5" className="p-8 text-center text-gray-400 dark:text-gray-500">No se encontraron cargadores con ese filtro.</td>
                 </tr>
               )}
             </tbody>
@@ -356,16 +351,16 @@ export default function Chargers() {
       {/* MODAL: CONFIRMAR ELIMINACIÓN */}
       {isDeleteModalOpen && (
         <div className="fixed inset-0 z-[150] flex items-center justify-center bg-sipar-dark/60 backdrop-blur-sm animate-[fadeIn_0.15s_ease-out]">
-          <div className="bg-white rounded-[20px] w-full max-w-sm shadow-2xl overflow-hidden p-6 text-center border border-gray-200 animate-[slideUp_0.2s_ease-out]">
-            <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-100">
+          <div className="bg-white dark:bg-sipar-dark rounded-[20px] w-full max-w-sm shadow-2xl overflow-hidden p-6 text-center border border-gray-200 dark:border-gray-800 animate-[slideUp_0.2s_ease-out]">
+            <div className="w-16 h-16 bg-red-50 dark:bg-red-900/20 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-100 dark:border-red-800/40">
               <AlertTriangle className="w-8 h-8 text-red-500" />
             </div>
-            <h3 className="font-bold text-lg text-sipar-dark mb-2">¿Eliminar Cargador?</h3>
-            <p className="text-sm text-gray-500 mb-6">
-              Estás a punto de borrar el equipo <span className="font-bold text-sipar-dark">{chargerToDelete?.serial_number}</span> de la red. Esta acción desactivará sus transacciones futuras.
+            <h3 className="font-bold text-lg text-sipar-dark dark:text-white mb-2">¿Eliminar Cargador?</h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
+              Estás a punto de borrar el equipo <span className="font-bold text-sipar-dark dark:text-white">{chargerToDelete?.serial_number}</span> de la red. Esta acción desactivará sus transacciones futuras.
             </p>
             <div className="flex gap-3">
-              <button onClick={() => {setIsDeleteModalOpen(false); setChargerToDelete(null);}} className="flex-1 py-2.5 bg-gray-100 text-gray-600 font-bold rounded-xl hover:bg-gray-200 transition text-sm">Cancelar</button>
+              <button onClick={() => {setIsDeleteModalOpen(false); setChargerToDelete(null);}} className="flex-1 py-2.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 font-bold rounded-xl hover:bg-gray-200 dark:hover:bg-gray-700 transition text-sm">Cancelar</button>
               <button onClick={handleDeleteConfirm} disabled={isSubmitting} className="flex-1 py-2.5 bg-red-500 text-white font-bold rounded-xl hover:bg-red-600 transition flex items-center justify-center gap-2 text-sm shadow-sm">
                 {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Sí, eliminar'}
               </button>
@@ -377,13 +372,13 @@ export default function Chargers() {
       {/* MODAL: CREAR / EDITAR */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-sipar-dark/60 backdrop-blur-sm animate-[fadeIn_0.2s_ease-out] p-4">
-          <div className="bg-white rounded-[24px] w-full max-w-2xl shadow-2xl overflow-hidden animate-[slideUp_0.3s_ease-out] max-h-[95vh] flex flex-col">
-            <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50 shrink-0">
-              <h3 className="font-bold text-lg text-sipar-dark flex items-center gap-2">
+          <div className="bg-white dark:bg-sipar-dark rounded-[24px] w-full max-w-2xl shadow-2xl overflow-hidden animate-[slideUp_0.3s_ease-out] max-h-[95vh] flex flex-col border border-gray-200 dark:border-gray-800">
+            <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center bg-gray-50/50 dark:bg-gray-800/50 shrink-0">
+              <h3 className="font-bold text-lg text-sipar-dark dark:text-white flex items-center gap-2">
                 {isEditMode ? <Edit className="w-5 h-5 text-sipar-orange" /> : <Plus className="w-5 h-5 text-sipar-orange" />} 
                 {isEditMode ? 'Editar Equipo' : 'Registrar Equipo'}
               </h3>
-              <button onClick={() => setIsModalOpen(false)} className="text-gray-400 hover:text-gray-600 transition bg-white rounded-full p-1 shadow-sm border border-gray-100"><X className="w-5 h-5" /></button>
+              <button onClick={() => setIsModalOpen(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition bg-white dark:bg-gray-800 rounded-full p-1 shadow-sm border border-gray-100 dark:border-gray-700"><X className="w-5 h-5" /></button>
             </div>
             
             <div className="overflow-y-auto hide-scroll">
@@ -396,28 +391,28 @@ export default function Chargers() {
                 <div className="space-y-5">
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-[12px] font-bold text-gray-600 uppercase tracking-wide mb-1">ID del Cargador</label>
-                      <input type="text" required placeholder="Ej. SPEV001" className="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-sipar-orange/20 outline-none transition" value={formData.serial_number} onChange={(e) => setFormData({...formData, serial_number: e.target.value})} />
+                      <label className="block text-[12px] font-bold text-gray-600 dark:text-gray-400 uppercase tracking-wide mb-1">ID del Cargador</label>
+                      <input type="text" required placeholder="Ej. SPEV001" className="w-full border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sipar-dark dark:text-white rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-sipar-orange/20 outline-none transition" value={formData.serial_number} onChange={(e) => setFormData({...formData, serial_number: e.target.value})} />
                     </div>
                     <div>
-                      <label className="block text-[12px] font-bold text-gray-600 uppercase tracking-wide mb-1">Potencia (kW)</label>
-                      <input type="number" step="0.1" required placeholder="Ej. 7.4" className="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-sipar-orange/20 outline-none transition" value={formData.power_kw} onChange={(e) => setFormData({...formData, power_kw: e.target.value})} />
+                      <label className="block text-[12px] font-bold text-gray-600 dark:text-gray-400 uppercase tracking-wide mb-1">Potencia (kW)</label>
+                      <input type="number" step="0.1" required placeholder="Ej. 7.4" className="w-full border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sipar-dark dark:text-white rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-sipar-orange/20 outline-none transition" value={formData.power_kw} onChange={(e) => setFormData({...formData, power_kw: e.target.value})} />
                     </div>
                   </div>
                   <div>
-                    <label className="block text-[12px] font-bold text-gray-600 uppercase tracking-wide mb-1">Dirección / Referencia</label>
-                    <input type="text" required placeholder="Ej. Shopping Paseo La Galería - Estacionamiento Nivel 2" className="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-sipar-orange/20 outline-none transition" value={formData.address} onChange={(e) => setFormData({...formData, address: e.target.value})} />
+                    <label className="block text-[12px] font-bold text-gray-600 dark:text-gray-400 uppercase tracking-wide mb-1">Dirección / Referencia</label>
+                    <input type="text" required placeholder="Ej. Shopping Paseo La Galería - Estacionamiento Nivel 2" className="w-full border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sipar-dark dark:text-white rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-sipar-orange/20 outline-none transition" value={formData.address} onChange={(e) => setFormData({...formData, address: e.target.value})} />
                   </div>
                   <div>
                     <div className="flex justify-between items-end mb-1">
-                      <label className="block text-[12px] font-bold text-gray-600 uppercase tracking-wide flex items-center gap-1.5">
+                      <label className="block text-[12px] font-bold text-gray-600 dark:text-gray-400 uppercase tracking-wide flex items-center gap-1.5">
 
 <Map className="w-3.5 h-3.5" />
 Ubicación GPS
                       </label>
                       <span className="text-[10px] text-gray-400 font-medium">Haz clic en el mapa para marcar el punto</span>
                     </div>
-                    <div className="border-2 border-gray-200 rounded-xl overflow-hidden relative">
+                    <div className="border-2 border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden relative">
                       {isMapLoaded ? (
                         <GoogleMap 
                           mapContainerStyle={mapContainerStyle} 
@@ -429,13 +424,13 @@ Ubicación GPS
                           {formData.lat && formData.lng && ( <MarkerF position={{ lat: Number(formData.lat), lng: Number(formData.lng) }} icon={{ url: 'http://maps.google.com/mapfiles/ms/icons/orange-dot.png' }} /> )}
                         </GoogleMap>
                       ) : (
-                        <div className="h-[250px] w-full bg-gray-50 flex items-center justify-center"><Loader2 className="w-8 h-8 text-gray-400 animate-spin" /></div>
+                        <div className="h-[250px] w-full bg-gray-50 dark:bg-gray-800 flex items-center justify-center"><Loader2 className="w-8 h-8 text-gray-400 animate-spin" /></div>
                       )}
                     </div>
                   </div>
                 </div>
-                <div className="mt-6 pt-4 border-t border-gray-100 flex justify-end gap-3">
-                  <button type="button" onClick={() => setIsModalOpen(false)} className="px-5 py-2.5 rounded-xl font-bold text-sm text-gray-600 hover:bg-gray-100 transition">Cancelar</button>
+                <div className="mt-6 pt-4 border-t border-gray-100 dark:border-gray-800 flex justify-end gap-3">
+                  <button type="button" onClick={() => setIsModalOpen(false)} className="px-5 py-2.5 rounded-xl font-bold text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition">Cancelar</button>
                   <button type="submit" disabled={isSubmitting} className="px-5 py-2.5 rounded-xl font-bold text-sm text-white bg-sipar-orange hover:bg-orange-600 transition flex items-center gap-2 shadow-sm disabled:opacity-70">
                     {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : (isEditMode ? 'Guardar Cambios' : 'Guardar Equipo')}
                   </button>
@@ -449,9 +444,9 @@ Ubicación GPS
       {/* MODAL: DETALLES (OCPP) */}
       {isDetailsOpen && selectedCharger && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-sipar-dark/60 backdrop-blur-sm p-4 animate-[fadeIn_0.15s_ease-out]">
-          <div className="bg-white rounded-[20px] w-full max-w-4xl shadow-2xl flex flex-col overflow-hidden border border-gray-200 animate-[slideUp_0.2s_ease-out]">
+          <div className="bg-white dark:bg-sipar-dark rounded-[20px] w-full max-w-4xl shadow-2xl flex flex-col overflow-hidden border border-gray-200 dark:border-gray-800 animate-[slideUp_0.2s_ease-out]">
             
-            <div className="px-6 py-5 border-b border-gray-100 flex justify-between items-center bg-sipar-dark text-white">
+            <div className="px-6 py-5 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center bg-sipar-dark text-white">
               <div className="flex items-center gap-3">
                 <div className="bg-gray-800 p-2 rounded-lg">
                   <BatteryCharging className="w-5 h-5 text-sipar-orange" />
@@ -479,7 +474,7 @@ Ubicación GPS
             
             <div className="p-6">
               {/* SELECTOR MANGUERAS */}
-              <div className="flex items-center gap-3 mb-6 pb-6 border-b border-gray-100">
+              <div className="flex items-center gap-3 mb-6 pb-6 border-b border-gray-100 dark:border-gray-800">
                 <span className="text-[13px] font-bold text-gray-400 uppercase tracking-wider">Controlando:</span>
                 
                 {selectedCharger.connectors && selectedCharger.connectors.length > 0 ? (
@@ -492,7 +487,7 @@ Ubicación GPS
                         className={`px-5 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 ${
                           activeConnector === con.connector_id 
                             ? 'bg-sipar-orange text-white shadow-md' 
-                            : 'bg-gray-50 text-gray-500 border border-gray-200 hover:bg-gray-100'
+                            : 'bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-300 border border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700'
                         }`}
                       >
                         <div className={`w-2 h-2 rounded-full ${
@@ -505,7 +500,7 @@ Ubicación GPS
                     );
                   })
                 ) : (
-                  <span className="text-sm text-gray-400 italic bg-gray-50 px-3 py-1.5 rounded-lg border border-gray-100">
+                  <span className="text-sm text-gray-400 italic bg-gray-50 dark:bg-gray-800 px-3 py-1.5 rounded-lg border border-gray-100 dark:border-gray-700">
                     Esperando a que el cargador reporte sus mangueras...
                   </span>
                 )}
@@ -517,33 +512,33 @@ Ubicación GPS
                     Máquina Física
                   </h3>
                   <ul className="space-y-3 text-sm">
-                    <li className="flex justify-between border-b border-gray-50 pb-2">
-                      <span className="text-gray-500">Estado Manguera {activeConnector}:</span> 
+                    <li className="flex justify-between border-b border-gray-50 dark:border-gray-800 pb-2">
+                      <span className="text-gray-500 dark:text-gray-400">Estado Manguera {activeConnector}:</span> 
                       <span className={`font-bold ${
-                        displayStatus === 'disponible' ? 'text-green-600' : 
-                        displayStatus === 'en_uso' ? 'text-blue-600' : 'text-red-600'
+                        displayStatus === 'disponible' ? 'text-green-600 dark:text-green-400' : 
+                        displayStatus === 'en_uso' ? 'text-blue-600 dark:text-blue-400' : 'text-red-600 dark:text-red-400'
                       }`}>
                         {displayStatus === 'disponible' ? 'Disponible' : 
                          displayStatus === 'en_uso' ? 'Cargando Vehículo' : 'Fuera de Línea'}
                       </span>
                     </li>
-                    <li className="flex justify-between border-b border-gray-50 pb-2">
-                      <span className="text-gray-500">Fabricante:</span> 
-                      <span className="font-bold text-sipar-dark">{selectedCharger.vendor || 'Desconocido'}</span>
+                    <li className="flex justify-between border-b border-gray-50 dark:border-gray-800 pb-2">
+                      <span className="text-gray-500 dark:text-gray-400">Fabricante:</span> 
+                      <span className="font-bold text-sipar-dark dark:text-white">{selectedCharger.vendor || 'Desconocido'}</span>
                     </li>
-                    <li className="flex justify-between border-b border-gray-50 pb-2">
-                      <span className="text-gray-500">Modelo:</span> 
-                      <span className="font-bold text-sipar-dark">
+                    <li className="flex justify-between border-b border-gray-50 dark:border-gray-800 pb-2">
+                      <span className="text-gray-500 dark:text-gray-400">Modelo:</span> 
+                      <span className="font-bold text-sipar-dark dark:text-white">
                         {selectedCharger.model ? `${selectedCharger.model} (${selectedCharger.power_kw}kW)` : 'Desconocido'}
                       </span>
                     </li>
-                    <li className="flex justify-between border-b border-gray-50 pb-2">
-                      <span className="text-gray-500">Protocolo:</span> 
-                      <span className="font-bold text-sipar-dark">OCPP 1.6J</span>
+                    <li className="flex justify-between border-b border-gray-50 dark:border-gray-800 pb-2">
+                      <span className="text-gray-500 dark:text-gray-400">Protocolo:</span> 
+                      <span className="font-bold text-sipar-dark dark:text-white">OCPP 1.6J</span>
                     </li>
-                    <li className="flex justify-between border-b border-gray-50 pb-2">
-                      <span className="text-gray-500">Último Heartbeat:</span> 
-                      <span className="font-bold text-sipar-dark">
+                    <li className="flex justify-between border-b border-gray-50 dark:border-gray-800 pb-2">
+                      <span className="text-gray-500 dark:text-gray-400">Último Heartbeat:</span> 
+                      <span className="font-bold text-sipar-dark dark:text-white">
                         {selectedCharger.last_heartbeat 
                           ? new Date(selectedCharger.last_heartbeat).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) 
                           : 'Sin conexión'}
@@ -555,16 +550,16 @@ Ubicación GPS
                 <div>
                   <h3 className="text-xs font-bold text-sipar-orange uppercase tracking-wider mb-4">Sesión Manguera {activeConnector}</h3>
                   <div className="grid gap-3">
-                    <button onClick={() => sendRemoteCommand('StartCharge')} disabled={isCommandSending !== ''} title="Fuerza inicio de energía." className="group w-full flex items-center justify-between px-4 py-3 bg-green-50 hover:bg-green-100 border border-green-200 rounded-xl text-green-700 font-semibold text-sm transition disabled:opacity-50">
+                    <button onClick={() => sendRemoteCommand('StartCharge')} disabled={isCommandSending !== ''} title="Fuerza inicio de energía." className="group w-full flex items-center justify-between px-4 py-3 bg-green-50 dark:bg-green-900/20 hover:bg-green-100 dark:hover:bg-green-900/30 border border-green-200 dark:border-green-800/50 rounded-xl text-green-700 dark:text-green-400 font-semibold text-sm transition disabled:opacity-50">
                       <span className="flex items-center gap-2">{isCommandSending === 'StartCharge' ? <Loader2 className="w-4 h-4 text-green-500 animate-spin" /> : <Play className="w-4 h-4" />} Forzar Inicio</span>
                       <Info className="w-4 h-4 text-green-400 opacity-50 group-hover:opacity-100 transition" />
                     </button>
-                    <button onClick={() => sendRemoteCommand('StopCharge')} disabled={isCommandSending !== ''} title="Corta el suministro eléctrico." className="group w-full flex items-center justify-between px-4 py-3 bg-red-50 hover:bg-red-100 border border-red-200 rounded-xl text-red-600 font-semibold text-sm transition disabled:opacity-50">
+                    <button onClick={() => sendRemoteCommand('StopCharge')} disabled={isCommandSending !== ''} title="Corta el suministro eléctrico." className="group w-full flex items-center justify-between px-4 py-3 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/30 border border-red-200 dark:border-red-800/50 rounded-xl text-red-600 dark:text-red-400 font-semibold text-sm transition disabled:opacity-50">
                       <span className="flex items-center gap-2">{isCommandSending === 'StopCharge' ? <Loader2 className="w-4 h-4 text-red-500 animate-spin" /> : <Square className="w-4 h-4" />} Forzar Fin de Carga</span>
                       <Info className="w-4 h-4 text-red-400 opacity-50 group-hover:opacity-100 transition" />
                     </button>
-                    <button onClick={() => sendRemoteCommand('Unlock')} disabled={isCommandSending !== ''} title="Retrae pin electromecánico." className="group w-full flex items-center justify-between px-4 py-3 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-xl text-sipar-dark font-semibold text-sm transition disabled:opacity-50">
-                      <span className="flex items-center gap-2">{isCommandSending === 'Unlock' ? <Loader2 className="w-4 h-4 text-sipar-orange animate-spin" /> : <Unlock className="w-4 h-4 text-gray-500" />} Desbloquear Manguera</span>
+                    <button onClick={() => sendRemoteCommand('Unlock')} disabled={isCommandSending !== ''} title="Retrae pin electromecánico." className="group w-full flex items-center justify-between px-4 py-3 bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-700 rounded-xl text-sipar-dark dark:text-white font-semibold text-sm transition disabled:opacity-50">
+                      <span className="flex items-center gap-2">{isCommandSending === 'Unlock' ? <Loader2 className="w-4 h-4 text-sipar-orange animate-spin" /> : <Unlock className="w-4 h-4 text-gray-500 dark:text-gray-400" />} Desbloquear Manguera</span>
                       <Info className="w-4 h-4 text-gray-400 opacity-50 group-hover:opacity-100 transition" />
                     </button>
                   </div>
@@ -573,11 +568,11 @@ Ubicación GPS
                 <div>
                   <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4">Reinicio General (OCPP)</h3>
                   <div className="grid gap-3">
-                    <button onClick={() => sendRemoteCommand('SoftReset')} disabled={isCommandSending !== ''} title="Reinicia el software." className="group w-full flex items-center justify-between px-4 py-3 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-xl text-sipar-dark font-semibold text-sm transition disabled:opacity-50">
-                      <span className="flex items-center gap-2">{isCommandSending === 'SoftReset' ? <Loader2 className="w-4 h-4 text-sipar-orange animate-spin" /> : <RotateCw className="w-4 h-4 text-gray-500" />} Soft Reset (Software)</span>
+                    <button onClick={() => sendRemoteCommand('SoftReset')} disabled={isCommandSending !== ''} title="Reinicia el software." className="group w-full flex items-center justify-between px-4 py-3 bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-700 rounded-xl text-sipar-dark dark:text-white font-semibold text-sm transition disabled:opacity-50">
+                      <span className="flex items-center gap-2">{isCommandSending === 'SoftReset' ? <Loader2 className="w-4 h-4 text-sipar-orange animate-spin" /> : <RotateCw className="w-4 h-4 text-gray-500 dark:text-gray-400" />} Soft Reset (Software)</span>
                       <Info className="w-4 h-4 text-gray-400 opacity-50 group-hover:opacity-100 transition" />
                     </button>
-                    <button onClick={() => sendRemoteCommand('HardReset')} disabled={isCommandSending !== ''} title="Corta el suministro de energía." className="group w-full flex items-center justify-between px-4 py-3 bg-red-50 hover:bg-red-100 border border-red-200 rounded-xl text-red-600 font-semibold text-sm transition disabled:opacity-50 mt-10">
+                    <button onClick={() => sendRemoteCommand('HardReset')} disabled={isCommandSending !== ''} title="Corta el suministro de energía." className="group w-full flex items-center justify-between px-4 py-3 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/30 border border-red-200 dark:border-red-800/50 rounded-xl text-red-600 dark:text-red-400 font-semibold text-sm transition disabled:opacity-50 mt-10">
                       <span className="flex items-center gap-2">{isCommandSending === 'HardReset' ? <Loader2 className="w-4 h-4 text-red-500 animate-spin" /> : <Power className="w-4 h-4" />} Hard Reset (Eléctrico)</span>
                       <Info className="w-4 h-4 text-red-400 opacity-50 group-hover:opacity-100 transition" />
                     </button>
