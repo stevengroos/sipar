@@ -13,48 +13,48 @@ export default function Finanzas() {
       {/* KPIs Financieros */}
       <div className="grid grid-cols-3 gap-6 mb-8">
         {/* KPI 1 */}
-        <div className="bg-white rounded-[20px] p-6 shadow-[0_2px_15px_rgba(0,0,0,0.03)] border border-gray-100 flex items-center justify-between">
+        <div className="bg-white dark:bg-sipar-dark rounded-[20px] p-6 shadow-[0_2px_15px_rgba(0,0,0,0.03)] border border-gray-100 dark:border-gray-800 flex items-center justify-between transition-colors">
           <div>
-            <p className="text-[13px] font-semibold text-gray-500 mb-1">Fondos de Usuarios (Pasivo)</p>
-            <p className="text-[26px] font-bold text-sipar-dark tracking-tight">18.540.000 ₲</p>
-            <p className="text-[11px] text-gray-500 font-semibold mt-2">Saldo total en billeteras</p>
+            <p className="text-[13px] font-semibold text-gray-500 dark:text-gray-400 mb-1">Fondos de Usuarios (Pasivo)</p>
+            <p className="text-[26px] font-bold text-sipar-dark dark:text-white tracking-tight">18.540.000 ₲</p>
+            <p className="text-[11px] text-gray-500 dark:text-gray-400 font-semibold mt-2">Saldo total en billeteras</p>
           </div>
-          <div className="w-12 h-12 bg-blue-50 rounded-xl flex justify-center items-center text-blue-500 border border-blue-100">
+          <div className="w-12 h-12 bg-blue-50 dark:bg-blue-900/20 rounded-xl flex justify-center items-center text-blue-500 border border-blue-100 dark:border-blue-800/40">
             <Wallet className="w-6 h-6" />
           </div>
         </div>
         
         {/* KPI 2 */}
-        <div className="bg-white rounded-[20px] p-6 shadow-[0_2px_15px_rgba(0,0,0,0.03)] border border-gray-100 flex items-center justify-between">
+        <div className="bg-white dark:bg-sipar-dark rounded-[20px] p-6 shadow-[0_2px_15px_rgba(0,0,0,0.03)] border border-gray-100 dark:border-gray-800 flex items-center justify-between transition-colors">
           <div>
-            <p className="text-[13px] font-semibold text-gray-500 mb-1">Liquidación Pasarela (Mes)</p>
-            <p className="text-[26px] font-bold text-sipar-dark tracking-tight">45.200.000 ₲</p>
+            <p className="text-[13px] font-semibold text-gray-500 dark:text-gray-400 mb-1">Liquidación Pasarela (Mes)</p>
+            <p className="text-[26px] font-bold text-sipar-dark dark:text-white tracking-tight">45.200.000 ₲</p>
             <p className="text-[11px] text-green-500 font-bold mt-2 flex items-center gap-1">
               <ArrowUpRight className="w-3 h-3" /> Pagado a SIPAR
             </p>
           </div>
-          <div className="w-12 h-12 bg-green-50 rounded-xl flex justify-center items-center text-green-500 border border-green-100">
+          <div className="w-12 h-12 bg-green-50 dark:bg-green-900/20 rounded-xl flex justify-center items-center text-green-500 border border-green-100 dark:border-green-800/40">
             <Landmark className="w-6 h-6" />
           </div>
         </div>
         
         {/* KPI 3 */}
-        <div className="bg-white rounded-[20px] p-6 shadow-[0_2px_15px_rgba(0,0,0,0.03)] border border-red-200 flex items-center justify-between">
+        <div className="bg-white dark:bg-sipar-dark rounded-[20px] p-6 shadow-[0_2px_15px_rgba(0,0,0,0.03)] border border-red-200 dark:border-red-900/40 flex items-center justify-between transition-colors">
           <div>
-            <p className="text-[13px] font-semibold text-gray-500 mb-1">Reembolsos / Disputas</p>
-            <p className="text-[26px] font-bold text-sipar-dark tracking-tight">1 Pendiente</p>
+            <p className="text-[13px] font-semibold text-gray-500 dark:text-gray-400 mb-1">Reembolsos / Disputas</p>
+            <p className="text-[26px] font-bold text-sipar-dark dark:text-white tracking-tight">1 Pendiente</p>
             <p className="text-[11px] text-red-500 font-bold mt-2 flex items-center gap-1">
               <AlertCircle className="w-3 h-3" /> Requiere atención
             </p>
           </div>
-          <div className="w-12 h-12 bg-red-50 rounded-xl flex justify-center items-center text-red-500 border border-red-100">
+          <div className="w-12 h-12 bg-red-50 dark:bg-red-900/20 rounded-xl flex justify-center items-center text-red-500 border border-red-100 dark:border-red-800/40">
             <ArrowLeftRight className="w-6 h-6" />
           </div>
         </div>
       </div>
 
       {/* Libro Mayor / Transacciones */}
-      <div className="w-full bg-white rounded-[20px] shadow-[0_2px_15px_rgba(0,0,0,0.03)] border border-gray-100 overflow-hidden flex flex-col">
+      <div className="w-full bg-white dark:bg-sipar-dark rounded-[20px] shadow-[0_2px_15px_rgba(0,0,0,0.03)] border border-gray-100 dark:border-gray-800 overflow-hidden flex flex-col transition-colors">
         <div className="bg-sipar-dark px-6 py-5 border-b border-gray-800 flex justify-between items-center">
           <h2 className="text-lg font-bold text-white flex items-center gap-2">
             <Receipt className="w-5 h-5 text-sipar-orange" /> Conciliación & Libro Mayor
@@ -64,7 +64,7 @@ export default function Finanzas() {
               <Search className="w-4 h-4 text-gray-400" />
               <input type="text" placeholder="Buscar transacción..." className="bg-transparent border-none text-sm text-white focus:outline-none placeholder-gray-500 w-48" />
             </div>
-            <button className="bg-white text-sipar-dark hover:bg-gray-100 px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2 shadow-sm transition">
+            <button className="bg-white dark:bg-gray-800 text-sipar-dark dark:text-white hover:bg-gray-100 dark:hover:bg-gray-700 px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2 shadow-sm transition border border-transparent dark:border-gray-700">
               <Download className="w-4 h-4" /> Exportar CSV
             </button>
           </div>
@@ -73,63 +73,63 @@ export default function Finanzas() {
         <div className="p-0 overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
-              <tr className="bg-gray-50 border-b border-gray-100">
-                <th className="px-6 py-4 text-[11px] uppercase font-bold text-gray-500 tracking-wider">Transacción & Fecha</th>
-                <th className="px-6 py-4 text-[11px] uppercase font-bold text-gray-500 tracking-wider">Usuario</th>
-                <th className="px-6 py-4 text-[11px] uppercase font-bold text-gray-500 tracking-wider">Tipo & Medio</th>
-                <th className="px-6 py-4 text-[11px] uppercase font-bold text-gray-500 tracking-wider">Estado</th>
-                <th className="px-6 py-4 text-[11px] uppercase font-bold text-gray-500 tracking-wider text-right">Monto (₲) / Acción</th>
+              <tr className="bg-gray-50 dark:bg-gray-900/50 border-b border-gray-100 dark:border-gray-800">
+                <th className="px-6 py-4 text-[11px] uppercase font-bold text-gray-500 dark:text-gray-400 tracking-wider">Transacción & Fecha</th>
+                <th className="px-6 py-4 text-[11px] uppercase font-bold text-gray-500 dark:text-gray-400 tracking-wider">Usuario</th>
+                <th className="px-6 py-4 text-[11px] uppercase font-bold text-gray-500 dark:text-gray-400 tracking-wider">Tipo & Medio</th>
+                <th className="px-6 py-4 text-[11px] uppercase font-bold text-gray-500 dark:text-gray-400 tracking-wider">Estado</th>
+                <th className="px-6 py-4 text-[11px] uppercase font-bold text-gray-500 dark:text-gray-400 tracking-wider text-right">Monto (₲) / Acción</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="divide-y divide-gray-50 dark:divide-gray-800">
               
               {/* TRX 1: Disputa Pendiente */}
-              <tr className="border-b border-gray-50 hover:bg-red-50/30 transition bg-red-50/20">
+              <tr className="hover:bg-red-50/30 dark:hover:bg-red-950/20 transition bg-red-50/20 dark:bg-red-950/10">
                 <td className="px-6 py-4">
-                  <p className="font-bold text-[13px] text-sipar-dark">#TRX-98237</p>
-                  <p className="text-[11px] text-gray-500 mt-1">Hoy, 10:15 AM</p>
+                  <p className="font-bold text-[13px] text-sipar-dark dark:text-white">#TRX-98237</p>
+                  <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1">Hoy, 10:15 AM</p>
                 </td>
-                <td className="px-6 py-4 text-[13px] font-semibold text-sipar-dark">Juan Pérez</td>
+                <td className="px-6 py-4 text-[13px] font-semibold text-sipar-dark dark:text-white">Juan Pérez</td>
                 <td className="px-6 py-4">
-                  <p className="text-[13px] text-gray-600 font-bold">Consumo de Energía</p>
-                  <p className="text-[11px] text-gray-500 mt-1 flex items-center gap-1">
+                  <p className="text-[13px] text-gray-600 dark:text-gray-300 font-bold">Consumo de Energía</p>
+                  <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1 flex items-center gap-1">
                     <BatteryCharging className="w-3 h-3" /> SIPAR Conmebol
                   </p>
                 </td>
                 <td className="px-6 py-4">
-                  <span className="bg-red-100 text-red-700 px-2.5 py-1 rounded-full text-[11px] font-bold flex items-center w-max gap-1.5">
+                  <span className="bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 px-2.5 py-1 rounded-full text-[11px] font-bold flex items-center w-max gap-1.5 border border-red-200 dark:border-red-800">
                     <AlertCircle className="w-3.5 h-3.5" /> Disputa / Queja
                   </span>
                 </td>
                 <td className="px-6 py-4 text-right">
-                  <p className="font-bold text-sipar-dark mb-2">- 85.000</p>
-                  <button onClick={() => setIsDisputeModalOpen(true)} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-red-300 text-red-600 rounded-lg text-xs font-bold hover:bg-red-50 shadow-sm transition">
+                  <p className="font-bold text-sipar-dark dark:text-white mb-2">- 85.000</p>
+                  <button onClick={() => setIsDisputeModalOpen(true)} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white dark:bg-gray-800 border border-red-300 dark:border-red-800 text-red-600 dark:text-red-400 rounded-lg text-xs font-bold hover:bg-red-50 dark:hover:bg-red-900/40 shadow-sm transition">
                     <ShieldAlert className="w-3.5 h-3.5" /> Gestionar
                   </button>
                 </td>
               </tr>
 
               {/* TRX 2: Ingreso Normal */}
-              <tr className="border-b border-gray-50 hover:bg-gray-50 transition">
+              <tr className="hover:bg-gray-50/50 dark:hover:bg-gray-800/40 transition">
                 <td className="px-6 py-4">
-                  <p className="font-bold text-[13px] text-sipar-dark">#TRX-98236</p>
-                  <p className="text-[11px] text-gray-500 mt-1">Ayer, 18:30 PM</p>
+                  <p className="font-bold text-[13px] text-sipar-dark dark:text-white">#TRX-98236</p>
+                  <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1">Ayer, 18:30 PM</p>
                 </td>
-                <td className="px-6 py-4 text-[13px] font-semibold text-sipar-dark">María González</td>
+                <td className="px-6 py-4 text-[13px] font-semibold text-sipar-dark dark:text-white">María González</td>
                 <td className="px-6 py-4">
-                  <p className="text-[13px] text-gray-600 font-bold">Recarga Billetera</p>
-                  <p className="text-[11px] text-gray-500 mt-1 flex items-center gap-1">
+                  <p className="text-[13px] text-gray-600 dark:text-gray-300 font-bold">Recarga Billetera</p>
+                  <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1 flex items-center gap-1">
                     <CreditCard className="w-3 h-3" /> Bancard - Visa **4092
                   </p>
                 </td>
                 <td className="px-6 py-4">
-                  <span className="bg-green-100 text-green-700 px-2.5 py-1 rounded-full text-[11px] font-bold flex items-center w-max gap-1.5">
+                  <span className="bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 px-2.5 py-1 rounded-full text-[11px] font-bold flex items-center w-max gap-1.5 border border-green-200 dark:border-green-800">
                     <CheckCircle2 className="w-3.5 h-3.5" /> Aprobado
                   </span>
                 </td>
                 <td className="px-6 py-4 text-right">
-                  <p className="font-bold text-green-600 mb-2">+ 150.000</p>
-                  <button className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 text-gray-500 rounded-lg text-xs font-bold hover:bg-gray-50 transition">
+                  <p className="font-bold text-green-600 dark:text-green-400 mb-2">+ 150.000</p>
+                  <button className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-300 rounded-lg text-xs font-bold hover:bg-gray-50 dark:hover:bg-gray-700 transition">
                     Recibo
                   </button>
                 </td>
@@ -143,13 +143,13 @@ export default function Finanzas() {
       {/* MODAL: GESTIÓN DE DISPUTAS */}
       {isDisputeModalOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-sipar-dark/60 backdrop-blur-sm p-4 animate-[fadeIn_0.2s_ease-out]">
-          <div className="bg-white rounded-[20px] w-full max-w-2xl shadow-2xl flex flex-col overflow-hidden animate-[slideUp_0.3s_ease-out] border border-gray-200">
-            <div className="px-6 py-5 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+          <div className="bg-white dark:bg-sipar-dark rounded-[20px] w-full max-w-2xl shadow-2xl flex flex-col overflow-hidden animate-[slideUp_0.3s_ease-out] border border-gray-200 dark:border-gray-800 transition-colors">
+            <div className="px-6 py-5 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center bg-gray-50 dark:bg-gray-800/50">
               <div>
-                <h2 className="text-lg font-bold text-sipar-dark flex items-center gap-2">
+                <h2 className="text-lg font-bold text-sipar-dark dark:text-white flex items-center gap-2">
                   <FileWarning className="w-5 h-5 text-red-500" /> Revisión de Disputa / Queja
                 </h2>
-                <p className="text-[11px] text-gray-500 font-mono mt-1">Transacción #TRX-98237</p>
+                <p className="text-[11px] text-gray-500 dark:text-gray-400 font-mono mt-1">Transacción #TRX-98237</p>
               </div>
               <button onClick={() => setIsDisputeModalOpen(false)} className="text-gray-400 hover:text-red-500 transition">
                 <X className="w-5 h-5" />
@@ -157,30 +157,30 @@ export default function Finanzas() {
             </div>
             
             <div className="p-6">
-              <div className="bg-red-50 border border-red-100 rounded-xl p-4 mb-6">
-                <p className="text-sm text-red-800 font-semibold mb-1">Motivo reportado por el cliente (Juan Pérez):</p>
-                <p className="text-sm text-red-600 italic">"El cargador cortó la carga a los 5 minutos por un fallo eléctrico, pero me descontó 85.000 Gs de mi billetera."</p>
+              <div className="bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-800/40 rounded-xl p-4 mb-6">
+                <p className="text-sm text-red-800 dark:text-red-300 font-semibold mb-1">Motivo reportado por el cliente (Juan Pérez):</p>
+                <p className="text-sm text-red-600 dark:text-red-400 italic">"El cargador cortó la carga a los 5 minutos por un fallo eléctrico, pero me descontó 85.000 Gs de mi billetera."</p>
               </div>
 
               <div className="grid grid-cols-2 gap-8 mb-6">
                 <div>
                   <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Datos del Cobro</h3>
                   <ul className="space-y-2 text-sm">
-                    <li className="flex justify-between border-b border-gray-50 pb-1"><span className="text-gray-500">Monto Deducido:</span> <span className="font-bold text-sipar-dark">85.000 ₲</span></li>
-                    <li className="flex justify-between border-b border-gray-50 pb-1"><span className="text-gray-500">Energía Cobrada:</span> <span className="font-bold text-sipar-dark">34.0 kWh</span></li>
+                    <li className="flex justify-between border-b border-gray-50 dark:border-gray-800 pb-1"><span className="text-gray-500 dark:text-gray-400">Monto Deducido:</span> <span className="font-bold text-sipar-dark dark:text-white">85.000 ₲</span></li>
+                    <li className="flex justify-between border-b border-gray-50 dark:border-gray-800 pb-1"><span className="text-gray-500 dark:text-gray-400">Energía Cobrada:</span> <span className="font-bold text-sipar-dark dark:text-white">34.0 kWh</span></li>
                   </ul>
                 </div>
                 <div>
                   <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Auditoría del Cargador (OCPP)</h3>
                   <ul className="space-y-2 text-sm">
-                    <li className="flex justify-between border-b border-gray-50 pb-1"><span className="text-gray-500">Duración Sesión:</span> <span className="font-bold text-sipar-dark">00:05:22</span></li>
-                    <li className="flex justify-between border-b border-gray-50 pb-1"><span className="text-gray-500">Energía Real Entregada:</span> <span className="font-bold text-red-600">4.2 kWh</span></li>
+                    <li className="flex justify-between border-b border-gray-50 dark:border-gray-800 pb-1"><span className="text-gray-500 dark:text-gray-400">Duración Sesión:</span> <span className="font-bold text-sipar-dark dark:text-white">00:05:22</span></li>
+                    <li className="flex justify-between border-b border-gray-50 dark:border-gray-800 pb-1"><span className="text-gray-500 dark:text-gray-400">Energía Real Entregada:</span> <span className="font-bold text-red-600 dark:text-red-400">4.2 kWh</span></li>
                   </ul>
                 </div>
               </div>
 
               <div className="flex gap-4">
-                <button onClick={() => setIsDisputeModalOpen(false)} className="flex-1 py-3 bg-white border border-gray-300 text-gray-600 font-bold rounded-xl hover:bg-gray-50 shadow-sm transition flex items-center justify-center gap-2">
+                <button onClick={() => setIsDisputeModalOpen(false)} className="flex-1 py-3 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 text-gray-600 dark:text-gray-300 font-bold rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 shadow-sm transition flex items-center justify-center gap-2">
                   <Ban className="w-4 h-4" /> Rechazar Queja
                 </button>
                 <button onClick={() => setIsDisputeModalOpen(false)} className="flex-1 py-3 bg-gradient-to-br from-green-500 to-green-600 text-white font-bold rounded-xl shadow-[0_4px_15px_rgba(34,197,94,0.3)] hover:opacity-90 transition flex items-center justify-center gap-2">
