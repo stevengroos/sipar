@@ -130,11 +130,13 @@ export default function Usuarios() {
       {/* ================= NOTIFICACIÓN TOAST ================= */}
       {notification.show && (
         <div className={`fixed top-6 right-6 z-[200] flex items-center gap-3 px-5 py-4 rounded-xl shadow-2xl animate-[slideDown_0.3s_ease-out] border ${
-          notification.type === 'success' ? 'bg-white border-green-200 text-green-700' : 'bg-white border-red-200 text-red-700'
+          notification.type === 'success' 
+            ? 'bg-white dark:bg-gray-900 border-green-200 dark:border-green-800 text-green-700 dark:text-green-400' 
+            : 'bg-white dark:bg-gray-900 border-red-200 dark:border-red-800 text-red-700 dark:text-red-400'
         }`}>
           {notification.type === 'success' ? <CheckCircle2 className="w-6 h-6 text-green-500" /> : <AlertTriangle className="w-6 h-6 text-red-500" />}
           <div>
-            <p className="font-bold text-sm text-sipar-dark">
+            <p className="font-bold text-sm text-sipar-dark dark:text-white">
               {notification.type === 'success' ? 'Operación Exitosa' : 'Error en la operación'}
             </p>
             <p className="text-xs mt-0.5 opacity-90">{notification.message}</p>
@@ -146,46 +148,46 @@ export default function Usuarios() {
       <div className="grid grid-cols-2 gap-8 items-start">
         
         {/* ================= EQUIPO INTERNO ================= */}
-        <div className="w-full bg-white rounded-[20px] shadow-[0_2px_15px_rgba(0,0,0,0.03)] border border-gray-100 overflow-hidden flex flex-col">
-          <div className="px-6 py-5 border-b border-gray-100 flex justify-between items-center bg-gray-50">
-            <h2 className="text-[15px] font-bold text-sipar-dark flex items-center gap-2">
+        <div className="w-full bg-white dark:bg-sipar-dark rounded-[20px] shadow-[0_2px_15px_rgba(0,0,0,0.03)] border border-gray-100 dark:border-gray-800 overflow-hidden flex flex-col transition-colors">
+          <div className="px-6 py-5 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center bg-gray-50 dark:bg-gray-800/50">
+            <h2 className="text-[15px] font-bold text-sipar-dark dark:text-white flex items-center gap-2">
               <ShieldCheck className="w-4 h-4 text-sipar-orange" /> Equipo Interno (Admin)
             </h2>
-            <button onClick={openCreateModal} className="bg-sipar-dark hover:bg-gray-800 text-white px-3 py-1.5 rounded-lg font-bold text-xs flex items-center gap-2 transition shadow-sm">
+            <button onClick={openCreateModal} className="bg-sipar-dark dark:bg-black hover:bg-gray-800 text-white px-3 py-1.5 rounded-lg font-bold text-xs flex items-center gap-2 transition shadow-sm border border-transparent dark:border-gray-700">
               <UserPlus className="w-3.5 h-3.5" /> Invitar
             </button>
           </div>
           <div className="p-0 overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="bg-white border-b border-gray-100">
+                <tr className="bg-white dark:bg-sipar-dark border-b border-gray-100 dark:border-gray-800 transition-colors">
                   <th className="px-5 py-3 text-[10px] uppercase font-bold text-gray-400 tracking-wider">Usuario / Mail</th>
                   <th className="px-5 py-3 text-[10px] uppercase font-bold text-gray-400 tracking-wider">Seguridad</th>
                   <th className="px-5 py-3 text-[10px] uppercase font-bold text-gray-400 tracking-wider text-right">Acción</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-gray-50 dark:divide-gray-800">
                 {internalUsers.map(user => (
-                  <tr key={user.id} className="border-b border-gray-50 hover:bg-gray-50 transition">
+                  <tr key={user.id} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/40 transition">
                     <td className="px-5 py-4">
-                      <p className="font-bold text-[13px] text-sipar-dark">{user.first_name} {user.last_name}</p>
-                      <p className="text-[11px] text-gray-500 mt-0.5">{user.email}</p>
+                      <p className="font-bold text-[13px] text-sipar-dark dark:text-white">{user.first_name} {user.last_name}</p>
+                      <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">{user.email}</p>
                     </td>
                     <td className="px-5 py-4">
                       {user.role === 'superadmin' ? (
                         <>
-                          <span className="bg-purple-50 text-purple-700 px-2 py-0.5 rounded text-[10px] font-bold border border-purple-100 mb-1.5 inline-block capitalize">{user.role}</span><br/>
-                          <span className="text-[10px] text-green-600 font-semibold flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> 2FA Activo</span>
+                          <span className="bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 px-2 py-0.5 rounded text-[10px] font-bold border border-purple-100 dark:border-purple-800 mb-1.5 inline-block capitalize">{user.role}</span><br/>
+                          <span className="text-[10px] text-green-600 dark:text-green-400 font-semibold flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> 2FA Activo</span>
                         </>
                       ) : (
                         <>
-                          <span className="bg-blue-50 text-blue-700 px-2 py-0.5 rounded text-[10px] font-bold border border-blue-100 mb-1.5 inline-block capitalize">{user.role}</span><br/>
+                          <span className="bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 px-2 py-0.5 rounded text-[10px] font-bold border border-blue-100 dark:border-blue-800 mb-1.5 inline-block capitalize">{user.role}</span><br/>
                           <span className="text-[10px] text-red-500 font-semibold flex items-center gap-1"><AlertTriangle className="w-3 h-3" /> Sin 2FA</span>
                         </>
                       )}
                     </td>
                     <td className="px-5 py-4 text-right">
-                       <button onClick={() => openEditModal(user)} className="px-2.5 py-1.5 bg-white border border-gray-200 text-sipar-dark rounded-md text-[11px] font-bold hover:bg-gray-50 hover:text-sipar-orange shadow-sm transition">
+                       <button onClick={() => openEditModal(user)} className="px-2.5 py-1.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-sipar-dark dark:text-gray-200 rounded-md text-[11px] font-bold hover:bg-gray-50 dark:hover:bg-gray-700 hover:text-sipar-orange shadow-sm transition">
                           Gestionar
                        </button>
                     </td>
@@ -197,7 +199,7 @@ export default function Usuarios() {
         </div>
 
         {/* ================= CONDUCTORES (APP MÓVIL) ================= */}
-        <div className="w-full bg-white rounded-[20px] shadow-[0_2px_15px_rgba(0,0,0,0.03)] border border-gray-100 overflow-hidden flex flex-col">
+        <div className="w-full bg-white dark:bg-sipar-dark rounded-[20px] shadow-[0_2px_15px_rgba(0,0,0,0.03)] border border-gray-100 dark:border-gray-800 overflow-hidden flex flex-col transition-colors">
           <div className="bg-sipar-dark px-6 py-5 border-b border-gray-800 flex justify-between items-center">
             <h2 className="text-[15px] font-bold text-white flex items-center gap-2">
               <Smartphone className="w-4 h-4 text-sipar-orange" /> App Conductores
@@ -210,26 +212,26 @@ export default function Usuarios() {
           <div className="p-0 overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="bg-gray-50 border-b border-gray-100">
-                  <th className="px-5 py-3 text-[10px] uppercase font-bold text-gray-500 tracking-wider">Conductor</th>
-                  <th className="px-5 py-3 text-[10px] uppercase font-bold text-gray-500 tracking-wider">Balance</th>
-                  <th className="px-5 py-3 text-[10px] uppercase font-bold text-gray-500 tracking-wider text-right">Acción</th>
+                <tr className="bg-gray-50 dark:bg-gray-900/50 border-b border-gray-100 dark:border-gray-800">
+                  <th className="px-5 py-3 text-[10px] uppercase font-bold text-gray-500 dark:text-gray-400 tracking-wider">Conductor</th>
+                  <th className="px-5 py-3 text-[10px] uppercase font-bold text-gray-500 dark:text-gray-400 tracking-wider">Balance</th>
+                  <th className="px-5 py-3 text-[10px] uppercase font-bold text-gray-500 dark:text-gray-400 tracking-wider text-right">Acción</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-gray-50 dark:divide-gray-800">
                 {appUsers.map(user => (
-                  <tr key={user.id} className="border-b border-gray-50 hover:bg-gray-50 transition">
+                  <tr key={user.id} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/40 transition">
                     <td className="px-5 py-4">
-                      <p className="font-bold text-[13px] text-sipar-dark">{user.first_name} {user.last_name}</p>
-                      <p className="text-[11px] text-gray-500 mt-0.5">{user.email}</p>
+                      <p className="font-bold text-[13px] text-sipar-dark dark:text-white">{user.first_name} {user.last_name}</p>
+                      <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">{user.email}</p>
                     </td>
                     <td className="px-5 py-4">
-                      <span className="font-bold text-sipar-dark text-[13px]">
+                      <span className="font-bold text-sipar-dark dark:text-white text-[13px]">
                         {user.balance.toLocaleString('es-PY')} ₲
                       </span>
                     </td>
                     <td className="px-5 py-4 text-right">
-                      <button className="px-2.5 py-1.5 bg-white border border-gray-200 text-sipar-dark rounded-md text-[11px] font-bold hover:bg-gray-50 hover:text-sipar-orange shadow-sm transition">
+                      <button className="px-2.5 py-1.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-sipar-dark dark:text-gray-200 rounded-md text-[11px] font-bold hover:bg-gray-50 dark:hover:bg-gray-700 hover:text-sipar-orange shadow-sm transition">
                         Ver Perfil
                       </button>
                     </td>
@@ -245,9 +247,9 @@ export default function Usuarios() {
       {/* ================= MODAL: CREAR / EDITAR USUARIO INTERNO ================= */}
       {isModalOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-sipar-dark/60 backdrop-blur-sm p-4 animate-[fadeIn_0.2s_ease-out]">
-          <div className="bg-white rounded-[20px] w-full max-w-lg shadow-2xl flex flex-col overflow-hidden border border-gray-200 animate-[slideUp_0.3s_ease-out]">
-            <div className="px-6 py-5 border-b border-gray-100 flex justify-between items-center bg-gray-50">
-              <h2 className="text-lg font-bold text-sipar-dark flex items-center gap-2">
+          <div className="bg-white dark:bg-sipar-dark rounded-[20px] w-full max-w-lg shadow-2xl flex flex-col overflow-hidden border border-gray-200 dark:border-gray-800 animate-[slideUp_0.3s_ease-out] transition-colors">
+            <div className="px-6 py-5 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center bg-gray-50 dark:bg-gray-800/50">
+              <h2 className="text-lg font-bold text-sipar-dark dark:text-white flex items-center gap-2">
                 <ShieldAlert className="w-5 h-5 text-sipar-orange" /> {formData.id ? 'Gestionar Acceso' : 'Invitar al Equipo'}
               </h2>
               <button onClick={() => setIsModalOpen(false)} className="text-gray-400 hover:text-red-500 transition"><X className="w-5 h-5" /></button>
@@ -257,33 +259,33 @@ export default function Usuarios() {
                 
                 <div className="grid grid-cols-2 gap-4 mb-4">
                   <div>
-                    <label className="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Nombre</label>
-                    <input type="text" required value={formData.first_name} onChange={e => setFormData({...formData, first_name: e.target.value})} className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm text-sipar-dark font-bold focus:outline-none focus:ring-2 focus:ring-sipar-orange transition bg-white" />
+                    <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">Nombre</label>
+                    <input type="text" required value={formData.first_name} onChange={e => setFormData({...formData, first_name: e.target.value})} className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-700 rounded-lg text-sm text-sipar-dark dark:text-white font-bold focus:outline-none focus:ring-2 focus:ring-sipar-orange transition bg-white dark:bg-gray-900" />
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Apellido</label>
-                    <input type="text" required value={formData.last_name} onChange={e => setFormData({...formData, last_name: e.target.value})} className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm text-sipar-dark font-bold focus:outline-none focus:ring-2 focus:ring-sipar-orange transition bg-white" />
+                    <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">Apellido</label>
+                    <input type="text" required value={formData.last_name} onChange={e => setFormData({...formData, last_name: e.target.value})} className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-700 rounded-lg text-sm text-sipar-dark dark:text-white font-bold focus:outline-none focus:ring-2 focus:ring-sipar-orange transition bg-white dark:bg-gray-900" />
                   </div>
                 </div>
 
                 <div className="mb-4">
-                  <label className="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Correo Corporativo</label>
-                  <input type="email" required value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm text-sipar-dark font-bold focus:outline-none focus:ring-2 focus:ring-sipar-orange transition bg-white" />
+                  <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">Correo Corporativo</label>
+                  <input type="email" required value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-700 rounded-lg text-sm text-sipar-dark dark:text-white font-bold focus:outline-none focus:ring-2 focus:ring-sipar-orange transition bg-white dark:bg-gray-900" />
                 </div>
 
                 <div className="mb-4">
-                  <label className="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Rol Asignado</label>
-                  <select value={formData.role} onChange={e => setFormData({...formData, role: e.target.value})} className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm text-sipar-dark font-bold focus:outline-none focus:ring-2 focus:ring-sipar-orange transition bg-white">
+                  <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">Rol Asignado</label>
+                  <select value={formData.role} onChange={e => setFormData({...formData, role: e.target.value})} className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-700 rounded-lg text-sm text-sipar-dark dark:text-white font-bold focus:outline-none focus:ring-2 focus:ring-sipar-orange transition bg-white dark:bg-gray-900">
                     <option value="superadmin">Super Administrador</option>
                     <option value="admin">Administrador</option>
                     <option value="operador">Operador (Soporte Técnico)</option>
                   </select>
                 </div>
 
-                <div className="mb-6 bg-red-50 border border-red-100 rounded-xl p-4">
-                  <label className="block text-[11px] font-bold text-red-600 uppercase tracking-wide mb-2 flex items-center gap-1.5"><ShieldAlert className="w-3.5 h-3.5" /> {formData.id ? 'Nueva Contraseña (Opcional)' : 'Contraseña Inicial (Obligatorio)'}</label>
-                  <input type="text" required={!formData.id} placeholder={formData.id ? "Escribe para forzar reseteo..." : "Ej. Sipar2026!"} value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} className="w-full px-4 py-2.5 border border-red-200 rounded-lg text-sm text-sipar-dark focus:outline-none focus:ring-2 focus:ring-red-400 transition bg-white" />
-                  {formData.id && <p className="text-[10px] text-red-500 mt-1.5">Si se deja vacío, la contraseña del usuario no cambiará.</p>}
+                <div className="mb-6 bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-800/50 rounded-xl p-4">
+                  <label className="block text-[11px] font-bold text-red-600 dark:text-red-400 uppercase tracking-wide mb-2 flex items-center gap-1.5"><ShieldAlert className="w-3.5 h-3.5" /> {formData.id ? 'Nueva Contraseña (Opcional)' : 'Contraseña Inicial (Obligatorio)'}</label>
+                  <input type="text" required={!formData.id} placeholder={formData.id ? "Escribe para forzar reseteo..." : "Ej. Sipar2026!"} value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} className="w-full px-4 py-2.5 border border-red-200 dark:border-red-800 rounded-lg text-sm text-sipar-dark dark:text-white focus:outline-none focus:ring-2 focus:ring-red-400 transition bg-white dark:bg-gray-900" />
+                  {formData.id && <p className="text-[10px] text-red-500 dark:text-red-400 mt-1.5">Si se deja vacío, la contraseña del usuario no cambiará.</p>}
                 </div>
 
                 <div className="flex justify-between items-center gap-3">
@@ -293,8 +295,8 @@ export default function Usuarios() {
                      </button>
                   )}
                   <div className={`flex gap-3 ${!formData.id && 'w-full'}`}>
-                    <button type="button" onClick={() => setIsModalOpen(false)} className={`py-3 bg-gray-100 text-gray-600 font-bold rounded-xl hover:bg-gray-200 transition ${!formData.id ? 'flex-1' : 'px-5'}`}>Cancelar</button>
-                    <button type="submit" disabled={isSubmitting} className={`py-3 bg-sipar-dark text-white font-bold rounded-xl shadow-md hover:bg-gray-800 transition flex items-center justify-center gap-2 disabled:opacity-70 ${!formData.id ? 'flex-1' : 'px-6'}`}>
+                    <button type="button" onClick={() => setIsModalOpen(false)} className={`py-3 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 font-bold rounded-xl hover:bg-gray-200 dark:hover:bg-gray-700 transition ${!formData.id ? 'flex-1' : 'px-5'}`}>Cancelar</button>
+                    <button type="submit" disabled={isSubmitting} className={`py-3 bg-sipar-dark dark:bg-black text-white font-bold rounded-xl shadow-md hover:bg-gray-800 dark:hover:bg-gray-900 transition flex items-center justify-center gap-2 disabled:opacity-70 ${!formData.id ? 'flex-1' : 'px-6'}`}>
                       {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Save className="w-4 h-4" /> {formData.id ? 'Guardar Cambios' : 'Invitar Usuario'}</>}
                     </button>
                   </div>
@@ -309,16 +311,16 @@ export default function Usuarios() {
       {/* MODAL: CONFIRMAR ELIMINACIÓN */}
       {isDeleteModalOpen && (
         <div className="fixed inset-0 z-[150] flex items-center justify-center bg-sipar-dark/60 backdrop-blur-sm animate-[fadeIn_0.15s_ease-out]">
-          <div className="bg-white rounded-[20px] w-full max-w-sm shadow-2xl overflow-hidden p-6 text-center border border-gray-200 animate-[slideUp_0.2s_ease-out]">
-            <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-100">
+          <div className="bg-white dark:bg-sipar-dark rounded-[20px] w-full max-w-sm shadow-2xl overflow-hidden p-6 text-center border border-gray-200 dark:border-gray-800 animate-[slideUp_0.2s_ease-out] transition-colors">
+            <div className="w-16 h-16 bg-red-50 dark:bg-red-900/20 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-100 dark:border-red-800/40">
               <UserX className="w-8 h-8 text-red-500" />
             </div>
-            <h3 className="font-bold text-lg text-sipar-dark mb-2">¿Suspender Cuenta?</h3>
-            <p className="text-sm text-gray-500 mb-6">
+            <h3 className="font-bold text-lg text-sipar-dark dark:text-white mb-2">¿Suspender Cuenta?</h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
               El usuario perderá inmediatamente el acceso al panel administrativo. No se borrará su historial de auditoría.
             </p>
             <div className="flex gap-3">
-              <button onClick={() => {setIsDeleteModalOpen(false); setSelectedUser(null);}} className="flex-1 py-2.5 bg-gray-100 text-gray-600 font-bold rounded-xl hover:bg-gray-200 transition text-sm">Cancelar</button>
+              <button onClick={() => {setIsDeleteModalOpen(false); setSelectedUser(null);}} className="flex-1 py-2.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 font-bold rounded-xl hover:bg-gray-200 dark:hover:bg-gray-700 transition text-sm">Cancelar</button>
               <button onClick={handleDeleteConfirm} disabled={isSubmitting} className="flex-1 py-2.5 bg-red-500 text-white font-bold rounded-xl hover:bg-red-600 transition flex items-center justify-center gap-2 text-sm shadow-sm">
                 {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Sí, suspender'}
               </button>
