@@ -47,34 +47,34 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-gray-50 dark:bg-[#0B0F17] flex flex-col justify-center py-12 sm:px-6 lg:px-8 transition-colors">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
         <div className="flex justify-center text-sipar-orange">
           <Zap className="w-12 h-12" />
         </div>
-        <h2 className="mt-4 text-center text-3xl font-extrabold text-sipar-dark">
+        <h2 className="mt-4 text-center text-3xl font-extrabold text-sipar-dark dark:text-white">
           SIPAR Admin
         </h2>
-        <p className="mt-2 text-center text-sm text-gray-500">
+        <p className="mt-2 text-center text-sm text-gray-500 dark:text-gray-400">
           Plataforma de Gestión de Redes de Carga
         </p>
       </div>
 
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
-        <div className="bg-white py-8 px-4 shadow-[0_8px_30px_rgb(0,0,0,0.04)] sm:rounded-[20px] sm:px-10 border border-gray-100">
+        <div className="bg-white dark:bg-sipar-dark py-8 px-4 shadow-[0_8px_30px_rgb(0,0,0,0.04)] sm:rounded-[20px] sm:px-10 border border-gray-100 dark:border-gray-800 transition-colors">
           <form className="space-y-6" onSubmit={handleLogin}>
             
             {/* Mensaje de Error */}
             {error && (
-              <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-md flex items-center">
-                <AlertCircle className="w-5 h-5 text-red-500 mr-3" />
-                <p className="text-sm text-red-700">{error}</p>
+              <div className="bg-red-50 dark:bg-red-900/20 border-l-4 border-red-500 p-4 rounded-md flex items-center">
+                <AlertCircle className="w-5 h-5 text-red-500 mr-3 shrink-0" />
+                <p className="text-sm text-red-700 dark:text-red-400">{error}</p>
               </div>
             )}
 
             {/* Input Email */}
             <div>
-              <label className="block text-sm font-medium text-gray-700">Email</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Email</label>
               <div className="mt-1 relative rounded-md shadow-sm">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                   <Mail className="h-5 w-5 text-gray-400" />
@@ -84,7 +84,7 @@ export default function Login() {
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-xl focus:ring-sipar-orange focus:border-sipar-orange sm:text-sm transition-colors"
+                  className="block w-full pl-10 pr-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sipar-dark dark:text-white rounded-xl focus:ring-sipar-orange focus:border-sipar-orange sm:text-sm transition-colors"
                   placeholder="admin@sipar.com"
                 />
               </div>
@@ -92,7 +92,7 @@ export default function Login() {
 
             {/* Input Contraseña */}
             <div>
-              <label className="block text-sm font-medium text-gray-700">Contraseña</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Contraseña</label>
               <div className="mt-1 relative rounded-md shadow-sm">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                   <Lock className="h-5 w-5 text-gray-400" />
@@ -102,7 +102,7 @@ export default function Login() {
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-xl focus:ring-sipar-orange focus:border-sipar-orange sm:text-sm transition-colors"
+                  className="block w-full pl-10 pr-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sipar-dark dark:text-white rounded-xl focus:ring-sipar-orange focus:border-sipar-orange sm:text-sm transition-colors"
                   placeholder="••••••••"
                 />
               </div>
