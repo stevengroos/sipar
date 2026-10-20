@@ -57,11 +57,11 @@ export default function Chargers() {
   useEffect(() => {
     fetchChargers();
     const interval = setInterval(() => {
-      // Quitamos la restricción "!isDetailsOpen" para que siga actualizando el modal en vivo
+      // Sigue actualizando en vivo incluso con el modal de detalles abierto
       if(!isModalOpen) fetchChargers(); 
     }, 5000);
     return () => clearInterval(interval);
-  }, [isModalOpen]); // Actualizamos la dependencia
+  }, [isModalOpen]);
 
   useEffect(() => {
     if (selectedCharger) {
@@ -93,10 +93,12 @@ export default function Chargers() {
 
     try {
       const token = localStorage.getItem('sipar_token');
+      const existingCharger = chargers.find(c => c.id === formData.id);
       const payload = {
         serial_number: formData.serial_number,
         power_kw: parseFloat(formData.power_kw),
-        status: "disponible",
+        // Si es nuevo nace fuera_de_linea hasta que conecte por WebSocket; si edita mantiene su estado
+        status: isEditMode && existingCharger ? existingCharger.status : "fuera_de_linea",
         company_id: 1,
         location: { lat: parseFloat(formData.lat), lng: parseFloat(formData.lng), address: formData.address }
       };
@@ -191,6 +193,8 @@ export default function Chargers() {
 
       const response = await api.post(endpoint, {}, { headers: { Authorization: `Bearer ${token}` } });
       showNotification('success', `El cargador respondió: "${response.data.respuesta_hardware || 'Comando aceptado'}"`);
+      // Refrescamos de inmediato para ver el cambio de estado
+      setTimeout(() => fetchChargers(), 800);
     } catch (error) {
       showNotification('error', error.response?.data?.detail || 'El cargador no está conectado o rechazó la solicitud.');
     } finally {
@@ -217,8 +221,11 @@ export default function Chargers() {
     );
   }
 
+  // Si el cargador general está fuera de línea, forzamos que la manguera también se muestre fuera de línea
   const activeConnectorData = selectedCharger?.connectors?.find(c => c.connector_id === activeConnector);
-  const displayStatus = activeConnectorData ? activeConnectorData.status : selectedCharger?.status;
+  const displayStatus = selectedCharger?.status === 'fuera_de_linea' 
+    ? 'fuera_de_linea' 
+    : (activeConnectorData ? activeConnectorData.status : selectedCharger?.status);
 
   return (
     <div className="block animate-[fadeIn_0.2s_ease-out] relative">
@@ -403,9 +410,11 @@ export default function Chargers() {
                   </div>
                   <div>
                     <div className="flex justify-between items-end mb-1">
+                      <label className="block text-[12px] font-bold text-gray-600 uppercase tracking-wide flex items-center gap-1.5">
 
 <Map className="w-3.5 h-3.5" />
-<label className="block text-[12px] font-bold text-gray-600 uppercase tracking-wide flex items-center gap-1.5"> Ubicación GPS</label>
+Ubicación GPS
+                      </label>
                       <span className="text-[10px] text-gray-400 font-medium">Haz clic en el mapa para marcar el punto</span>
                     </div>
                     <div className="border-2 border-gray-200 rounded-xl overflow-hidden relative">
@@ -474,24 +483,27 @@ export default function Chargers() {
                 <span className="text-[13px] font-bold text-gray-400 uppercase tracking-wider">Controlando:</span>
                 
                 {selectedCharger.connectors && selectedCharger.connectors.length > 0 ? (
-                  selectedCharger.connectors.map(con => (
-                    <button 
-                      key={con.id}
-                      onClick={() => setActiveConnector(con.connector_id)}
-                      className={`px-5 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 ${
-                        activeConnector === con.connector_id 
-                          ? 'bg-sipar-orange text-white shadow-md' 
-                          : 'bg-gray-50 text-gray-500 border border-gray-200 hover:bg-gray-100'
-                      }`}
-                    >
-                      <div className={`w-2 h-2 rounded-full ${
-                        con.status === 'en_uso' ? 'bg-blue-500' : 
-                        con.status === 'fuera_de_linea' ? 'bg-red-500' : 
-                        'bg-green-500'
-                      }`}></div>
-                      Manguera {con.connector_id}
-                    </button>
-                  ))
+                  selectedCharger.connectors.map(con => {
+                    const connectorRealStatus = selectedCharger.status === 'fuera_de_linea' ? 'fuera_de_linea' : con.status;
+                    return (
+                      <button 
+                        key={con.id}
+                        onClick={() => setActiveConnector(con.connector_id)}
+                        className={`px-5 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 ${
+                          activeConnector === con.connector_id 
+                            ? 'bg-sipar-orange text-white shadow-md' 
+                            : 'bg-gray-50 text-gray-500 border border-gray-200 hover:bg-gray-100'
+                        }`}
+                      >
+                        <div className={`w-2 h-2 rounded-full ${
+                          connectorRealStatus === 'en_uso' ? 'bg-blue-500' : 
+                          connectorRealStatus === 'fuera_de_linea' ? 'bg-red-500' : 
+                          'bg-green-500'
+                        }`}></div>
+                        Manguera {con.connector_id}
+                      </button>
+                    );
+                  })
                 ) : (
                   <span className="text-sm text-gray-400 italic bg-gray-50 px-3 py-1.5 rounded-lg border border-gray-100">
                     Esperando a que el cargador reporte sus mangueras...

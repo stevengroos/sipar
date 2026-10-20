@@ -7,7 +7,6 @@ from app.db.session import get_db
 from app.models import models
 from app.schemas.token import TokenPayload
 
-# Le indica a FastAPI en qué URL se piden los tokens
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 
 def get_current_user(db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)):
@@ -37,14 +36,38 @@ def get_current_active_user(current_user: models.User = Depends(get_current_user
         raise HTTPException(status_code=400, detail="Usuario inactivo")
     return current_user
 
-# Generador dinámico de permisos
 def RoleChecker(allowed_roles: list):
-    """Verifica si el rol del usuario coincide con los roles permitidos (ej. ['superadmin', 'admin'])."""
+    """Verifica si el rol del usuario coincide con los roles permitidos (insensible a mayúsculas/espacios)."""
+    normalized_allowed = [r.lower().replace(" ", "") for r in allowed_roles]
+    
     def role_checker(current_user: models.User = Depends(get_current_active_user)):
-        if current_user.role not in allowed_roles:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN, 
-                detail="No tienes permisos suficientes para realizar esta acción"
-            )
-        return current_user
+        user_role_norm = (current_user.role or "").lower().replace(" ", "")
+        # El superadmin siempre tiene acceso total
+        if user_role_norm == "superadmin" or user_role_norm in normalized_allowed:
+            return current_user
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, 
+            detail="No tienes permisos suficientes para realizar esta acción"
+        )
     return role_checker
+
+def PermissionChecker(permission_key: str):
+    """Verifica en la tabla de Roles si el rol del usuario tiene activado un permiso específico (ej. 'cargadores_editar')."""
+    def permission_checker(
+        db: Session = Depends(get_db),
+        current_user: models.User = Depends(get_current_active_user)
+    ):
+        user_role_norm = (current_user.role or "").lower().replace(" ", "")
+        if user_role_norm in ["superadmin", "admin"]:
+            return current_user
+            
+        role_db = db.query(models.Role).filter(models.Role.name == current_user.role).first()
+        if role_db and isinstance(role_db.permissions, dict):
+            if role_db.permissions.get(permission_key) is True:
+                return current_user
+                
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Tu rol ({current_user.role}) no tiene el permiso requerido: {permission_key}"
+        )
+    return permission_checker

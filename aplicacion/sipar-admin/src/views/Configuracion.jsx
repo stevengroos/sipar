@@ -15,13 +15,18 @@ export default function Configuracion() {
   const [config, setConfig] = useState(null);
   const [rolesList, setRolesList] = useState([]);
 
-  // Agregamos el ID al formulario para saber si estamos editando o creando
+  // Estado del formulario para Crear o Editar Rol
   const [roleForm, setRoleForm] = useState({
     id: null,
     name: '', cargadores_ver: false, cargadores_editar: false,
     usuarios_ver: false, usuarios_editar: false, finanzas_ver: false, finanzas_editar: false,
     admin_ver: false, admin_editar: false,
   });
+
+  const showNotification = (type, message) => {
+    setNotification({ show: true, type, message });
+    setTimeout(() => setNotification({ show: false, type: '', message: '' }), 4000);
+  };
 
   const fetchInitialData = async () => {
     try {
@@ -34,7 +39,9 @@ export default function Configuracion() {
       setConfig(configRes.data);
       setRolesList(rolesRes.data);
 
-      if (configRes.data.pref_dark_mode) {
+      const isDark = Boolean(configRes.data.pref_dark_mode);
+      localStorage.setItem('sipar_dark_mode', String(isDark));
+      if (isDark) {
         document.documentElement.classList.add('dark');
       } else {
         document.documentElement.classList.remove('dark');
@@ -52,16 +59,13 @@ export default function Configuracion() {
     fetchInitialData();
   }, []);
 
-  const showNotification = (type, message) => {
-    setNotification({ show: true, type, message });
-    setTimeout(() => setNotification({ show: false, type: '', message: '' }), 4000);
-  };
-
   const handleConfigChange = async (key, value) => {
+    const previousConfig = { ...config };
     const newConfig = { ...config, [key]: value };
     setConfig(newConfig); 
     
     if (key === 'pref_dark_mode') {
+      localStorage.setItem('sipar_dark_mode', String(value));
       if (value) {
         document.documentElement.classList.add('dark');
       } else {
@@ -71,18 +75,29 @@ export default function Configuracion() {
     
     try {
       const token = localStorage.getItem('sipar_token');
-      await api.put('/api/v1/config/', newConfig, { headers: { Authorization: `Bearer ${token}` } });
-      showNotification('success', 'Configuración guardada.');
+      const res = await api.put('/api/v1/config/', newConfig, { 
+        headers: { Authorization: `Bearer ${token}` } 
+      });
+      setConfig(res.data);
+      // Notificamos a AdminLayout (en App.jsx) para actualizar sesión/tema en vivo
+      window.dispatchEvent(new CustomEvent('sipar_config_updated', { detail: res.data }));
+      showNotification('success', 'Configuración actualizada correctamente.');
     } catch (error) {
-      showNotification('error', 'No se pudo guardar la configuración.');
-      setConfig(config); 
-      if (key === 'pref_dark_mode') document.documentElement.classList.toggle('dark');
+      showNotification('error', error.response?.data?.detail || 'No se pudo guardar la configuración.');
+      setConfig(previousConfig); 
+      if (key === 'pref_dark_mode') {
+        localStorage.setItem('sipar_dark_mode', String(previousConfig.pref_dark_mode));
+        if (previousConfig.pref_dark_mode) {
+          document.documentElement.classList.add('dark');
+        } else {
+          document.documentElement.classList.remove('dark');
+        }
+      }
     }
   };
 
-  // --- NUEVAS FUNCIONES PARA EL MODAL ---
+  // --- FUNCIONES PARA EL MODAL DE ROLES ---
 
-  // Limpia el formulario para un nuevo rol
   const openNewRoleModal = () => {
     setRoleForm({
       id: null,
@@ -93,7 +108,6 @@ export default function Configuracion() {
     setIsRoleModalOpen(true);
   };
 
-  // Carga los datos del rol seleccionado
   const handleEditRole = (rol) => {
     setRoleForm({
       id: rol.id,
@@ -110,15 +124,19 @@ export default function Configuracion() {
     setIsRoleModalOpen(true);
   };
 
-  // Guardar (Crear o Actualizar)
   const handleSaveRole = async (e) => {
     e.preventDefault();
+    if (!roleForm.name.trim()) {
+      showNotification('error', 'Por favor ingresa un nombre para el rol.');
+      return;
+    }
+
     setIsSaving(true);
     
     try {
       const token = localStorage.getItem('sipar_token');
       const payload = {
-        name: roleForm.name,
+        name: roleForm.name.trim(),
         permissions: {
           cargadores_ver: roleForm.cargadores_ver, cargadores_editar: roleForm.cargadores_editar,
           usuarios_ver: roleForm.usuarios_ver, usuarios_editar: roleForm.usuarios_editar,
@@ -128,11 +146,9 @@ export default function Configuracion() {
       };
 
       if (roleForm.id) {
-        // Actualizar rol existente
         await api.put(`/api/v1/roles/${roleForm.id}`, payload, { headers: { Authorization: `Bearer ${token}` } });
         showNotification('success', `El rol "${roleForm.name}" ha sido actualizado.`);
       } else {
-        // Crear rol nuevo
         await api.post('/api/v1/roles/', payload, { headers: { Authorization: `Bearer ${token}` } });
         showNotification('success', `El rol "${roleForm.name}" ha sido creado.`);
       }
@@ -159,11 +175,11 @@ export default function Configuracion() {
       
       {notification.show && (
         <div className={`fixed top-6 right-6 z-[200] flex items-center gap-3 px-5 py-4 rounded-xl shadow-2xl animate-[slideDown_0.3s_ease-out] border ${
-          notification.type === 'success' ? 'bg-white border-green-200 text-green-700' : 'bg-white border-red-200 text-red-700'
+          notification.type === 'success' ? 'bg-white dark:bg-gray-900 border-green-200 dark:border-green-800 text-green-700 dark:text-green-400' : 'bg-white dark:bg-gray-900 border-red-200 dark:border-red-800 text-red-700 dark:text-red-400'
         }`}>
           {notification.type === 'success' ? <CheckCircle className="w-6 h-6 text-green-500" /> : <AlertCircle className="w-6 h-6 text-red-500" />}
           <div>
-            <p className="font-bold text-sm text-sipar-dark">
+            <p className="font-bold text-sm text-sipar-dark dark:text-white">
               {notification.type === 'success' ? 'Operación Exitosa' : 'Error'}
             </p>
             <p className="text-xs mt-0.5 opacity-90">{notification.message}</p>
@@ -189,7 +205,7 @@ export default function Configuracion() {
                   <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1">Obligar al equipo interno a usar Authenticator.</p>
                 </div>
                 <label className="cursor-pointer relative inline-block w-10 h-5">
-                  <input type="checkbox" className="peer sr-only" checked={config.security_2fa} onChange={(e) => handleConfigChange('security_2fa', e.target.checked)} />
+                  <input type="checkbox" className="peer sr-only" checked={Boolean(config.security_2fa)} onChange={(e) => handleConfigChange('security_2fa', e.target.checked)} />
                   <div className="w-10 h-5 bg-gray-200 dark:bg-gray-700 rounded-full peer-checked:bg-sipar-orange transition-colors"></div>
                   <div className="absolute left-1 top-1 w-3 h-3 bg-white rounded-full transition-transform peer-checked:translate-x-5 shadow-sm"></div>
                 </label>
@@ -225,7 +241,7 @@ export default function Configuracion() {
                   <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1">Emails instantáneos si un cargador se desconecta.</p>
                 </div>
                 <label className="cursor-pointer relative inline-block w-10 h-5">
-                  <input type="checkbox" className="peer sr-only" checked={config.notif_hardware} onChange={(e) => handleConfigChange('notif_hardware', e.target.checked)} />
+                  <input type="checkbox" className="peer sr-only" checked={Boolean(config.notif_hardware)} onChange={(e) => handleConfigChange('notif_hardware', e.target.checked)} />
                   <div className="w-10 h-5 bg-gray-200 dark:bg-gray-700 rounded-full peer-checked:bg-sipar-orange transition-colors"></div>
                   <div className="absolute left-1 top-1 w-3 h-3 bg-white rounded-full transition-transform peer-checked:translate-x-5 shadow-sm"></div>
                 </label>
@@ -236,7 +252,18 @@ export default function Configuracion() {
                   <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1">Notificar al área financiera sobre reembolsos.</p>
                 </div>
                 <label className="cursor-pointer relative inline-block w-10 h-5">
-                  <input type="checkbox" className="peer sr-only" checked={config.notif_fraud} onChange={(e) => handleConfigChange('notif_fraud', e.target.checked)} />
+                  <input type="checkbox" className="peer sr-only" checked={Boolean(config.notif_fraud)} onChange={(e) => handleConfigChange('notif_fraud', e.target.checked)} />
+                  <div className="w-10 h-5 bg-gray-200 dark:bg-gray-700 rounded-full peer-checked:bg-sipar-orange transition-colors"></div>
+                  <div className="absolute left-1 top-1 w-3 h-3 bg-white rounded-full transition-transform peer-checked:translate-x-5 shadow-sm"></div>
+                </label>
+              </div>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-[13px] font-bold text-sipar-dark dark:text-white">Resumen Diario de Operaciones</p>
+                  <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1">Reporte automático de energía y recaudación al cierre del día.</p>
+                </div>
+                <label className="cursor-pointer relative inline-block w-10 h-5">
+                  <input type="checkbox" className="peer sr-only" checked={Boolean(config.notif_daily)} onChange={(e) => handleConfigChange('notif_daily', e.target.checked)} />
                   <div className="w-10 h-5 bg-gray-200 dark:bg-gray-700 rounded-full peer-checked:bg-sipar-orange transition-colors"></div>
                   <div className="absolute left-1 top-1 w-3 h-3 bg-white rounded-full transition-transform peer-checked:translate-x-5 shadow-sm"></div>
                 </label>
@@ -254,7 +281,6 @@ export default function Configuracion() {
                 <Users className="w-5 h-5 text-sipar-orange" />
                 <h2 className="text-[15px] font-bold text-sipar-dark dark:text-white">Roles y Perfiles de Acceso</h2>
               </div>
-              {/* === BOTÓN CREAR ROL ACTUALIZADO === */}
               <button onClick={openNewRoleModal} className="text-sipar-orange text-[12px] font-bold hover:underline flex items-center gap-1">
                 <Plus className="w-3 h-3" /> Crear Rol Nuevo
               </button>
@@ -272,7 +298,6 @@ export default function Configuracion() {
                   {rol.name === 'Super Admin' ? (
                     <span className="bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 px-2.5 py-1 rounded-md text-[10px] font-bold border border-purple-200 dark:border-purple-800">Acceso Ilimitado</span>
                   ) : (
-                    
                     <button 
                       onClick={() => handleEditRole(rol)} 
                       className="text-gray-400 hover:text-sipar-orange bg-white dark:bg-sipar-dark border border-gray-200 dark:border-gray-700 px-3 py-1.5 rounded-lg text-xs font-bold shadow-sm transition"
@@ -297,7 +322,7 @@ export default function Configuracion() {
                   <p className="text-[13px] font-bold text-sipar-dark dark:text-white">Modo Oscuro</p>
                 </div>
                 <label className="cursor-pointer relative inline-block w-10 h-5">
-                  <input type="checkbox" className="peer sr-only" checked={config.pref_dark_mode} onChange={(e) => handleConfigChange('pref_dark_mode', e.target.checked)} />
+                  <input type="checkbox" className="peer sr-only" checked={Boolean(config.pref_dark_mode)} onChange={(e) => handleConfigChange('pref_dark_mode', e.target.checked)} />
                   <div className="w-10 h-5 bg-gray-200 dark:bg-gray-700 rounded-full peer-checked:bg-sipar-orange transition-colors"></div>
                   <div className="absolute left-1 top-1 w-3 h-3 bg-white rounded-full transition-transform peer-checked:translate-x-5 shadow-sm"></div>
                 </label>
@@ -331,7 +356,14 @@ export default function Configuracion() {
               <form onSubmit={handleSaveRole}>
                 <div className="mb-6">
                   <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">Nombre del Rol</label>
-                  <input type="text" value={roleForm.name} onChange={(e) => setRoleForm({...roleForm, name: e.target.value})} className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-700 rounded-lg text-sm text-sipar-dark dark:text-white font-bold focus:outline-none focus:ring-2 focus:ring-sipar-orange transition bg-white dark:bg-sipar-dark" />
+                  <input 
+                    type="text" 
+                    required
+                    placeholder="Ej. Supervisor de Operaciones"
+                    value={roleForm.name} 
+                    onChange={(e) => setRoleForm({...roleForm, name: e.target.value})} 
+                    className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-700 rounded-lg text-sm text-sipar-dark dark:text-white font-bold focus:outline-none focus:ring-2 focus:ring-sipar-orange transition bg-white dark:bg-sipar-dark" 
+                  />
                 </div>
                 
                 <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Módulos y Permisos</h3>
@@ -346,7 +378,7 @@ export default function Configuracion() {
                         <span className="text-xs font-medium text-gray-600 dark:text-gray-300">Ver</span>
                       </label>
                       <label className="flex items-center gap-1.5 cursor-pointer">
-                        <input type="checkbox" checked={roleForm.cargadores_editar} onChange={(e) => setRoleForm({...roleForm, cargadores_editar: e.target.checked})} className="w-3.5 h-3.5 text-sipar-orange rounded focus:ring-sipar-orange accent-sipar-orange" />
+                        <input type="checkbox" checked={roleForm.cargadores_editar} onChange={(e) => setRoleForm({...roleForm, cargadores_editar: e.target.checked, cargadores_ver: e.target.checked ? true : roleForm.cargadores_ver})} className="w-3.5 h-3.5 text-sipar-orange rounded focus:ring-sipar-orange accent-sipar-orange" />
                         <span className="text-xs font-medium text-gray-600 dark:text-gray-300">Editar</span>
                       </label>
                     </div>
@@ -360,7 +392,7 @@ export default function Configuracion() {
                         <span className="text-xs font-medium text-gray-600 dark:text-gray-300">Ver</span>
                       </label>
                       <label className="flex items-center gap-1.5 cursor-pointer">
-                        <input type="checkbox" checked={roleForm.usuarios_editar} onChange={(e) => setRoleForm({...roleForm, usuarios_editar: e.target.checked})} className="w-3.5 h-3.5 text-sipar-orange rounded focus:ring-sipar-orange accent-sipar-orange" />
+                        <input type="checkbox" checked={roleForm.usuarios_editar} onChange={(e) => setRoleForm({...roleForm, usuarios_editar: e.target.checked, usuarios_ver: e.target.checked ? true : roleForm.usuarios_ver})} className="w-3.5 h-3.5 text-sipar-orange rounded focus:ring-sipar-orange accent-sipar-orange" />
                         <span className="text-xs font-medium text-gray-600 dark:text-gray-300">Editar</span>
                       </label>
                     </div>
@@ -374,7 +406,7 @@ export default function Configuracion() {
                         <span className="text-xs font-medium text-gray-600 dark:text-gray-300">Ver</span>
                       </label>
                       <label className="flex items-center gap-1.5 cursor-pointer">
-                        <input type="checkbox" checked={roleForm.finanzas_editar} onChange={(e) => setRoleForm({...roleForm, finanzas_editar: e.target.checked})} className="w-3.5 h-3.5 text-sipar-orange rounded focus:ring-sipar-orange accent-sipar-orange" />
+                        <input type="checkbox" checked={roleForm.finanzas_editar} onChange={(e) => setRoleForm({...roleForm, finanzas_editar: e.target.checked, finanzas_ver: e.target.checked ? true : roleForm.finanzas_ver})} className="w-3.5 h-3.5 text-sipar-orange rounded focus:ring-sipar-orange accent-sipar-orange" />
                         <span className="text-xs font-medium text-gray-600 dark:text-gray-300">Editar</span>
                       </label>
                     </div>
@@ -388,7 +420,7 @@ export default function Configuracion() {
                         <span className="text-xs font-medium text-gray-600 dark:text-gray-300">Ver</span>
                       </label>
                       <label className="flex items-center gap-1.5 cursor-pointer">
-                        <input type="checkbox" checked={roleForm.admin_editar} onChange={(e) => setRoleForm({...roleForm, admin_editar: e.target.checked})} className="w-3.5 h-3.5 text-sipar-orange rounded focus:ring-sipar-orange accent-sipar-orange" />
+                        <input type="checkbox" checked={roleForm.admin_editar} onChange={(e) => setRoleForm({...roleForm, admin_editar: e.target.checked, admin_ver: e.target.checked ? true : roleForm.admin_ver})} className="w-3.5 h-3.5 text-sipar-orange rounded focus:ring-sipar-orange accent-sipar-orange" />
                         <span className="text-xs font-medium text-gray-600 dark:text-gray-300">Editar</span>
                       </label>
                     </div>

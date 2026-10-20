@@ -5,7 +5,7 @@ from ocpp.v16 import ChargePoint as cp
 from ocpp.v16 import call, call_result
 from ocpp.v16.enums import RegistrationStatus
 
-ID_DEL_CARGADOR = "CHG-ASU-01" 
+ID_DEL_CARGADOR = "SIPARPY002" 
 
 class MiCargadorVirtual(cp):
     async def rutinas_de_inicio(self):
@@ -78,7 +78,7 @@ class MiCargadorVirtual(cp):
         await self.call(req)
 
 async def main():
-    url_sipar = f"ws://localhost:8000/api/v1/ocpp/{ID_DEL_CARGADOR}"
+    url_sipar = f"ws://sipar-bay.vercel.app/api/v1/ocpp/{ID_DEL_CARGADOR}"
     async with websockets.connect(url_sipar, subprotocols=['ocpp1.6']) as ws:
         cargador = MiCargadorVirtual(ID_DEL_CARGADOR, ws)
         # Añadimos el latido del corazón para que se ejecute en paralelo
