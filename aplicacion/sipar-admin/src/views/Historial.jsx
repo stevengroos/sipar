@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { 
   Receipt, Search, Clock, Zap, AlertTriangle, CheckCircle2, 
   X, Loader2, Wallet, Leaf, Gauge, BatteryCharging, ChevronRight, 
-  ChevronDown, ChevronUp, QrCode, FileText, LayoutGrid
+  ChevronLeft, ChevronDown, ChevronUp, QrCode, FileText, LayoutGrid
 } from 'lucide-react';
 import api from '../api/axios';
 
@@ -29,6 +29,10 @@ export default function Historial() {
   const [selectedCharger, setSelectedCharger] = useState('');
   const [selectedMonth, setSelectedMonth] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
+
+  // Estados de Paginación (20 por defecto, seleccionable 20, 50, 100)
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
 
   const [selectedTx, setSelectedTx] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -65,6 +69,11 @@ export default function Historial() {
     const interval = setInterval(fetchData, 5000);
     return () => clearInterval(interval);
   }, [selectedCharger, selectedMonth]);
+
+  // Reiniciar a la página 1 cuando cambian los filtros o el tamaño de página
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, selectedCharger, selectedMonth, pageSize]);
 
   // Formato HH:MM:SS
   const formatSeconds = (sec) => {
@@ -142,7 +151,6 @@ export default function Historial() {
 
     let pts = [];
     if (rawLog.length >= 2) {
-      // Si hay demasiados puntos (ej. > 45), muestreamos uniformemente hasta 40 puntos para una curva limpia
       const maxPoints = 40;
       const step = rawLog.length > maxPoints ? (rawLog.length - 1) / (maxPoints - 1) : 1;
       const sampled = [];
@@ -163,7 +171,6 @@ export default function Historial() {
         };
       });
     } else {
-      // Si la sesión fue corta, generamos 16 puntos interpolados entre inicio y conclusión
       const count = 16;
       const startMs = selectedTx.start_time ? new Date(selectedTx.start_time).getTime() : Date.now() - 600000;
       const durMs = Math.max(60, Number(selectedTx.duration_seconds || 300)) * 1000;
@@ -185,11 +192,20 @@ export default function Historial() {
     return { points: pts, maxKwh: computedMaxKwh, maxKw: computedMaxKw };
   }, [selectedTx]);
 
-  const filteredTxs = transactions.filter(tx => 
-    tx.id.toString().includes(searchTerm) ||
-    tx.charger_serial.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    tx.user_name.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredTxs = useMemo(() => {
+    return transactions.filter(tx => 
+      tx.id.toString().includes(searchTerm) ||
+      tx.charger_serial.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      tx.user_name.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+  }, [transactions, searchTerm]);
+
+  // Cálculos de Paginación
+  const totalPages = Math.max(1, Math.ceil(filteredTxs.length / pageSize));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+  const startIndex = (safeCurrentPage - 1) * pageSize;
+  const endIndex = startIndex + pageSize;
+  const paginatedTxs = filteredTxs.slice(startIndex, endIndex);
 
   if (loading) {
     return (
@@ -261,7 +277,21 @@ export default function Historial() {
           <h2 className="text-lg font-bold text-white flex items-center gap-2">
             <Zap className="w-5 h-5 text-sipar-orange" /> Sesiones Registradas ({filteredTxs.length})
           </h2>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
+            {/* Selector de cantidad de registros (20, 50, 100) */}
+            <div className="flex items-center gap-2 bg-gray-800 rounded-lg px-3 py-2 border border-gray-700">
+              <span className="text-xs text-gray-400 font-medium">Mostrar:</span>
+              <select
+                value={pageSize}
+                onChange={(e) => setPageSize(Number(e.target.value))}
+                className="bg-transparent text-xs font-bold text-white outline-none cursor-pointer"
+              >
+                <option value={20} className="bg-gray-900 text-white">20</option>
+                <option value={50} className="bg-gray-900 text-white">50</option>
+                <option value={100} className="bg-gray-900 text-white">100</option>
+              </select>
+            </div>
+
             <div className="bg-gray-800 rounded-lg px-3 py-2 flex items-center gap-2 border border-gray-700">
               <Search className="w-4 h-4 text-gray-400" />
               <input 
@@ -289,8 +319,8 @@ export default function Historial() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50 dark:divide-gray-800 text-sm">
-              {filteredTxs.length > 0 ? (
-                filteredTxs.map((tx) => (
+              {paginatedTxs.length > 0 ? (
+                paginatedTxs.map((tx) => (
                   <tr key={tx.id} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/40 transition">
                     <td className="p-4 pl-6">
                       <div className="flex items-center gap-2">
@@ -344,6 +374,75 @@ export default function Historial() {
             </tbody>
           </table>
         </div>
+
+        {/* PIE DE TABLA: CONTROLES DE PAGINACIÓN */}
+        {filteredTxs.length > 0 && (
+          <div className="px-6 py-4 bg-gray-50/60 dark:bg-gray-900/40 border-t border-gray-100 dark:border-gray-800 flex flex-wrap items-center justify-between gap-4 text-xs">
+            <div className="flex items-center gap-3 text-gray-500 dark:text-gray-400">
+              <span>
+                Mostrando <strong className="text-sipar-dark dark:text-white">{startIndex + 1}</strong> a{' '}
+                <strong className="text-sipar-dark dark:text-white">{Math.min(endIndex, filteredTxs.length)}</strong> de{' '}
+                <strong className="text-sipar-dark dark:text-white">{filteredTxs.length}</strong> registros
+              </span>
+              <span className="text-gray-300 dark:text-gray-700">|</span>
+              <div className="flex items-center gap-1.5">
+                <span>Filas por página:</span>
+                <select
+                  value={pageSize}
+                  onChange={(e) => setPageSize(Number(e.target.value))}
+                  className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-sipar-dark dark:text-white font-bold rounded-lg px-2 py-1 outline-none cursor-pointer"
+                >
+                  <option value={20}>20</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                disabled={safeCurrentPage === 1}
+                className="px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sipar-dark dark:text-gray-200 font-bold hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-40 disabled:pointer-events-none flex items-center gap-1 transition"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" /> Anterior
+              </button>
+
+              {Array.from({ length: totalPages }, (_, i) => i + 1)
+                .filter(page => page === 1 || page === totalPages || Math.abs(page - safeCurrentPage) <= 1)
+                .reduce((acc, page, idx, arr) => {
+                  if (idx > 0 && page - arr[idx - 1] > 1) acc.push('...');
+                  acc.push(page);
+                  return acc;
+                }, [])
+                .map((item, idx) =>
+                  item === '...' ? (
+                    <span key={`dots-${idx}`} className="px-2 text-gray-400">...</span>
+                  ) : (
+                    <button
+                      key={item}
+                      onClick={() => setCurrentPage(item)}
+                      className={`w-8 h-8 rounded-lg font-bold transition ${
+                        safeCurrentPage === item
+                          ? 'bg-sipar-orange text-white shadow-sm'
+                          : 'bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+                      }`}
+                    >
+                      {item}
+                    </button>
+                  )
+                )}
+
+              <button
+                onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                disabled={safeCurrentPage === totalPages}
+                className="px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sipar-dark dark:text-gray-200 font-bold hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-40 disabled:pointer-events-none flex items-center gap-1 transition"
+              >
+                Siguiente <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ================= MODAL DETALLE DE RECARGA (ESTILO VOLTBRAS COMPLETO) ================= */}
