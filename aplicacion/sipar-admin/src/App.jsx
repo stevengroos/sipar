@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { BrowserRouter, Routes, Route, Navigate, Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, Outlet, Link, useLocation, useNavigate, Clock } from 'react-router-dom';
 import { 
   HardHat, LayoutDashboard, Zap, Users, Wallet, 
   SlidersHorizontal, ShoppingBag, Settings, LogOut, Bell 
@@ -14,6 +14,7 @@ import Finanzas from './views/Finanzas';
 import Tarifas from './views/Tarifas';
 import Tienda from './views/Tienda';
 import Configuracion from './views/Configuracion';
+import Historial from './views/Historial';
 
 // ==========================================
 // COMPONENTE: GUARDIA DE SEGURIDAD (RUTAS PROTEGIDAS)
@@ -146,6 +147,7 @@ function AdminLayout() {
           <p className="px-3 text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2">Principal</p>
           <NavItem to="/admin/dashboard" icon={LayoutDashboard} label="Dashboard en Vivo" />
           <NavItem to="/admin/cargadores" icon={Zap} label="Red de Cargadores" />
+          <NavItem to="/admin/historial" icon={Clock} label="Historial & ANDE" />
           <NavItem to="/admin/usuarios" icon={Users} label="Usuarios & Flota" />
           <NavItem to="/admin/finanzas" icon={Wallet} label="Finanzas & Billeteras" />
 
@@ -215,6 +217,7 @@ export default function App() {
           <Route index element={<Navigate to="/admin/dashboard" replace />} />
           <Route path="dashboard" element={<Dashboard />} />
           <Route path="cargadores" element={<Chargers />} />
+          <Route path="historial" element={<Historial />} />
           <Route path="usuarios" element={<Usuarios />} />          
           <Route path="finanzas" element={<Finanzas />} />
           <Route path="parametros" element={<Tarifas />} />          

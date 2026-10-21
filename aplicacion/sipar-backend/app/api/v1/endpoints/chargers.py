@@ -5,7 +5,7 @@ from app.db.session import get_db
 from app.models import models
 from app.schemas.charger import ChargerCreate, ChargerResponse
 from app.api import deps
-from app.api.v1.endpoints.ws_ocpp import conexiones_activas  # <-- Importamos los cargadores conectados en vivo
+from app.api.v1.endpoints.ws_ocpp import conexiones_activas
 
 router = APIRouter()
 
@@ -20,16 +20,12 @@ def get_chargers(
     hubo_cambios = False
     for c in cargadores:
         esta_conectado = c.serial_number in conexiones_activas
-        
-        # 1. Si NO está conectado al WebSocket pero la DB dice que está disponible/en_uso -> Lo apagamos
         if not esta_conectado and c.status != "fuera_de_linea":
             c.status = "fuera_de_linea"
             for con in c.connectors:
                 if con.status != "fuera_de_linea":
                     con.status = "fuera_de_linea"
             hubo_cambios = True
-            
-        # 2. Si SÍ está conectado al WebSocket pero la DB decía fuera_de_linea -> Lo ponemos disponible
         elif esta_conectado and c.status == "fuera_de_linea":
             c.status = "disponible"
             hubo_cambios = True
@@ -45,12 +41,11 @@ def create_charger(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(deps.RoleChecker(["superadmin", "admin", "Super Admin"])) 
 ):
-    """Crea un nuevo cargador en la red."""
+    """Crea un nuevo cargador en la red incluyendo su configuración de costo ANDE."""
     exists = db.query(models.Charger).filter(models.Charger.serial_number == charger_in.serial_number).first()
     if exists:
         raise HTTPException(status_code=400, detail="El número de serie ya está registrado.")
     
-    # Verificamos si ya está conectado por WebSocket; si no, nace como "fuera_de_linea"
     estado_inicial = "disponible" if charger_in.serial_number in conexiones_activas else "fuera_de_linea"
     
     new_charger = models.Charger(
@@ -58,16 +53,19 @@ def create_charger(
         status=estado_inicial,
         power_kw=charger_in.power_kw,
         location=charger_in.location.model_dump(),
-        company_id=charger_in.company_id
+        company_id=charger_in.company_id or 1,
+        ande_tension_type=charger_in.ande_tension_type or "baja",
+        ande_cost_off_peak=charger_in.ande_cost_off_peak or 0.0,
+        ande_cost_peak=charger_in.ande_cost_peak if charger_in.ande_tension_type == "media" else (charger_in.ande_cost_off_peak or 0.0),
+        ande_peak_start=charger_in.ande_peak_start or "18:00",
+        ande_peak_end=charger_in.ande_peak_end or "21:00",
+        ande_peak_days=charger_in.ande_peak_days if charger_in.ande_peak_days is not None else [1, 2, 3, 4, 5, 6]
     )
     db.add(new_charger)
     db.commit()
     db.refresh(new_charger)
     return new_charger
 
-# ==========================================
-# Ruta para EDITAR un cargador
-# ==========================================
 @router.put("/{charger_id}", response_model=ChargerResponse)
 def update_charger(
     charger_id: int,
@@ -75,7 +73,7 @@ def update_charger(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(deps.RoleChecker(["superadmin", "admin", "Super Admin"]))
 ):
-    """Actualiza la información de un cargador existente."""
+    """Actualiza la información y costos ANDE de un cargador existente."""
     charger = db.query(models.Charger).filter(models.Charger.id == charger_id, models.Charger.is_active == True).first()
     if not charger:
         raise HTTPException(status_code=404, detail="Cargador no encontrado.")
@@ -88,14 +86,18 @@ def update_charger(
     charger.serial_number = charger_in.serial_number
     charger.power_kw = charger_in.power_kw
     charger.location = charger_in.location.model_dump()
+    charger.ande_tension_type = charger_in.ande_tension_type or "baja"
+    charger.ande_cost_off_peak = charger_in.ande_cost_off_peak or 0.0
+    charger.ande_cost_peak = charger_in.ande_cost_peak if charger.ande_tension_type == "media" else (charger_in.ande_cost_off_peak or 0.0)
+    charger.ande_peak_start = charger_in.ande_peak_start or "18:00"
+    charger.ande_peak_end = charger_in.ande_peak_end or "21:00"
+    if charger_in.ande_peak_days is not None:
+        charger.ande_peak_days = charger_in.ande_peak_days
     
     db.commit()
     db.refresh(charger)
     return charger
 
-# ==========================================
-# Ruta para ELIMINAR (Borrado lógico)
-# ==========================================
 @router.delete("/{charger_id}")
 def delete_charger(
     charger_id: int,

@@ -37,7 +37,8 @@ export default function Chargers() {
   const [activeConnector, setActiveConnector] = useState(1);
   
   const [formData, setFormData] = useState({
-    id: null, serial_number: '', power_kw: '', address: '', lat: '', lng: ''
+    id: null, serial_number: '', power_kw: '', address: '', lat: '', lng: '',
+    ande_tension_type: 'baja', ande_cost_off_peak: '', ande_cost_peak: '', ande_peak_start: '18:00', ande_peak_end: '21:00'
   });
 
   const fetchChargers = async () => {
@@ -97,7 +98,12 @@ export default function Chargers() {
         power_kw: parseFloat(formData.power_kw),
         status: isEditMode && existingCharger ? existingCharger.status : "fuera_de_linea",
         company_id: 1,
-        location: { lat: parseFloat(formData.lat), lng: parseFloat(formData.lng), address: formData.address }
+        location: { lat: parseFloat(formData.lat), lng: parseFloat(formData.lng), address: formData.address },
+        ande_tension_type: formData.ande_tension_type,
+        ande_cost_off_peak: parseFloat(formData.ande_cost_off_peak) || 0,
+        ande_cost_peak: parseFloat(formData.ande_cost_peak) || parseFloat(formData.ande_cost_off_peak) || 0,
+        ande_peak_start: formData.ande_peak_start,
+        ande_peak_end: formData.ande_peak_end
       };
 
       if (isEditMode) {
@@ -137,7 +143,12 @@ export default function Chargers() {
       power_kw: charger.power_kw,
       address: address,
       lat: lat,
-      lng: lng
+      lng: lng,
+      ande_tension_type: charger.ande_tension_type || 'baja',
+      ande_cost_off_peak: charger.ande_cost_off_peak || '',
+      ande_cost_peak: charger.ande_cost_peak || '',
+      ande_peak_start: charger.ande_peak_start || '18:00',
+      ande_peak_end: charger.ande_peak_end || '21:00'
     });
     setIsEditMode(true);
     setIsModalOpen(true);
@@ -440,6 +451,49 @@ Ubicación GPS
           </div>
         </div>
       )}
+
+
+      {/* CONFIGURACIÓN DE COSTO ANDE (LIQUIDACIÓN PROPIETARIO) */}
+                  <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
+                    <h4 className="text-xs font-bold text-sipar-orange uppercase tracking-wide mb-3">Parámetros de Costo ANDE (Liquidación Propietario)</h4>
+                    
+                    <div className="grid grid-cols-2 gap-4 mb-3">
+                      <div>
+                        <label className="block text-[11px] font-bold text-gray-500 dark:text-gray-400 mb-1">Tipo de Tensión</label>
+                        <select 
+                          value={formData.ande_tension_type} 
+                          onChange={(e) => setFormData({...formData, ande_tension_type: e.target.value})}
+                          className="w-full border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sipar-dark dark:text-white rounded-xl px-3 py-2 text-sm outline-none"
+                        >
+                          <option value="baja">Baja Tensión (Tarifa Plana)</option>
+                          <option value="media">Media Tensión (Variable por Hora)</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-bold text-gray-500 dark:text-gray-400 mb-1">
+                          {formData.ande_tension_type === 'media' ? 'Costo Fuera de Punta (₲/kWh)' : 'Costo de Energía ANDE (₲/kWh)'}
+                        </label>
+                        <input type="number" step="1" placeholder="Ej. 650" value={formData.ande_cost_off_peak} onChange={(e) => setFormData({...formData, ande_cost_off_peak: e.target.value})} className="w-full border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sipar-dark dark:text-white rounded-xl px-3 py-2 text-sm outline-none" />
+                      </div>
+                    </div>
+
+                    {formData.ande_tension_type === 'media' && (
+                      <div className="grid grid-cols-3 gap-3 bg-gray-50 dark:bg-gray-900/40 p-3 rounded-xl border border-gray-200 dark:border-gray-700">
+                        <div>
+                          <label className="block text-[10px] font-bold text-gray-500 dark:text-gray-400 mb-1">Costo en Punta (₲/kWh)</label>
+                          <input type="number" step="1" placeholder="Ej. 1100" value={formData.ande_cost_peak} onChange={(e) => setFormData({...formData, ande_cost_peak: e.target.value})} className="w-full border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sipar-dark dark:text-white rounded-lg px-2 py-1.5 text-xs outline-none" />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-bold text-gray-500 dark:text-gray-400 mb-1">Hora Inicio Punta</label>
+                          <input type="time" value={formData.ande_peak_start} onChange={(e) => setFormData({...formData, ande_peak_start: e.target.value})} className="w-full border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sipar-dark dark:text-white rounded-lg px-2 py-1.5 text-xs outline-none" />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-bold text-gray-500 dark:text-gray-400 mb-1">Hora Fin Punta</label>
+                          <input type="time" value={formData.ande_peak_end} onChange={(e) => setFormData({...formData, ande_peak_end: e.target.value})} className="w-full border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sipar-dark dark:text-white rounded-lg px-2 py-1.5 text-xs outline-none" />
+                        </div>
+                      </div>
+                    )}
+                  </div>
 
       {/* MODAL: DETALLES (OCPP) */}
       {isDetailsOpen && selectedCharger && (
