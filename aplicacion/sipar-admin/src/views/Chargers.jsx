@@ -115,7 +115,10 @@ export default function Chargers() {
       }
       
       setIsModalOpen(false);
-      setFormData({ id: null, serial_number: '', power_kw: '', address: '', lat: '', lng: '' });
+      setFormData({ 
+        id: null, serial_number: '', power_kw: '', address: '', lat: '', lng: '',
+        ande_tension_type: 'baja', ande_cost_off_peak: '', ande_cost_peak: '', ande_peak_start: '18:00', ande_peak_end: '21:00'
+      });
       fetchChargers();
     } catch (err) {
       console.error(err);
@@ -145,8 +148,8 @@ export default function Chargers() {
       lat: lat,
       lng: lng,
       ande_tension_type: charger.ande_tension_type || 'baja',
-      ande_cost_off_peak: charger.ande_cost_off_peak || '',
-      ande_cost_peak: charger.ande_cost_peak || '',
+      ande_cost_off_peak: charger.ande_cost_off_peak !== null && charger.ande_cost_off_peak !== undefined ? charger.ande_cost_off_peak : '',
+      ande_cost_peak: charger.ande_cost_peak !== null && charger.ande_cost_peak !== undefined ? charger.ande_cost_peak : '',
       ande_peak_start: charger.ande_peak_start || '18:00',
       ande_peak_end: charger.ande_peak_end || '21:00'
     });
@@ -261,7 +264,14 @@ export default function Chargers() {
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Gestiona la infraestructura de carga y su estado operativo.</p>
         </div>
         <button 
-          onClick={() => { setIsEditMode(false); setFormData({id: null, serial_number: '', power_kw: '', address: '', lat: '', lng: ''}); setIsModalOpen(true); }} 
+          onClick={() => { 
+            setIsEditMode(false); 
+            setFormData({
+              id: null, serial_number: '', power_kw: '', address: '', lat: '', lng: '',
+              ande_tension_type: 'baja', ande_cost_off_peak: '', ande_cost_peak: '', ande_peak_start: '18:00', ande_peak_end: '21:00'
+            }); 
+            setIsModalOpen(true); 
+          }} 
           className="flex items-center gap-2 bg-sipar-orange text-white px-4 py-2.5 rounded-xl font-bold text-sm hover:bg-orange-600 transition shadow-sm"
         >
           <PlusCircle className="w-4 h-4" /> Nuevo Cargador
@@ -439,21 +449,8 @@ Ubicación GPS
                       )}
                     </div>
                   </div>
-                </div>
-                <div className="mt-6 pt-4 border-t border-gray-100 dark:border-gray-800 flex justify-end gap-3">
-                  <button type="button" onClick={() => setIsModalOpen(false)} className="px-5 py-2.5 rounded-xl font-bold text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition">Cancelar</button>
-                  <button type="submit" disabled={isSubmitting} className="px-5 py-2.5 rounded-xl font-bold text-sm text-white bg-sipar-orange hover:bg-orange-600 transition flex items-center gap-2 shadow-sm disabled:opacity-70">
-                    {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : (isEditMode ? 'Guardar Cambios' : 'Guardar Equipo')}
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        </div>
-      )}
 
-
-      {/* CONFIGURACIÓN DE COSTO ANDE (LIQUIDACIÓN PROPIETARIO) */}
+                  {/* CONFIGURACIÓN DE COSTO ANDE (LIQUIDACIÓN PROPIETARIO) - DENTRO DEL FORMULARIO */}
                   <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
                     <h4 className="text-xs font-bold text-sipar-orange uppercase tracking-wide mb-3">Parámetros de Costo ANDE (Liquidación Propietario)</h4>
                     
@@ -494,6 +491,19 @@ Ubicación GPS
                       </div>
                     )}
                   </div>
+
+                </div>
+                <div className="mt-6 pt-4 border-t border-gray-100 dark:border-gray-800 flex justify-end gap-3">
+                  <button type="button" onClick={() => setIsModalOpen(false)} className="px-5 py-2.5 rounded-xl font-bold text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition">Cancelar</button>
+                  <button type="submit" disabled={isSubmitting} className="px-5 py-2.5 rounded-xl font-bold text-sm text-white bg-sipar-orange hover:bg-orange-600 transition flex items-center gap-2 shadow-sm disabled:opacity-70">
+                    {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : (isEditMode ? 'Guardar Cambios' : 'Guardar Equipo')}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* MODAL: DETALLES (OCPP) */}
       {isDetailsOpen && selectedCharger && (
