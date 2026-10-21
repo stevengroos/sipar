@@ -161,12 +161,31 @@ class ChargePointHandler(cp):
 # RUTA WEBSOCKET (Conexión física)
 @router.websocket("/{charge_point_id}")
 async def ocpp_endpoint(websocket: WebSocket, charge_point_id: str):
+    # Limpiamos espacios accidentales que hayan puesto en la app móvil
+    charge_point_id = charge_point_id.strip()
+
     subprotocol = websocket.headers.get("sec-websocket-protocol")
     if subprotocol:
-        await websocket.accept(subprotocol=subprotocol)
+        # Si el cargador envía varios subprotocolos separados por coma, tomamos el primero
+        chosen_subprotocol = subprotocol.split(",")[0].strip()
+        await websocket.accept(subprotocol=chosen_subprotocol)
     else:
         await websocket.accept()
     
+    # Verificamos el cargador en DB (insensible a mayúsculas/minúsculas)
+    db = SessionLocal()
+    cargador_inicial = db.query(models.Charger).filter(
+        models.Charger.serial_number.ilike(charge_point_id)
+    ).first()
+    
+    if cargador_inicial:
+        # Usamos el serial_number exacto de la DB para que coincida siempre con el Frontend
+        charge_point_id = cargador_inicial.serial_number
+        cargador_inicial.status = "disponible"
+        cargador_inicial.last_heartbeat = datetime.now(timezone.utc)
+        db.commit()
+    db.close()
+
     adapter = FastAPIWebsocketAdapter(websocket)
     cp_handler = ChargePointHandler(charge_point_id, adapter)
     
@@ -174,41 +193,31 @@ async def ocpp_endpoint(websocket: WebSocket, charge_point_id: str):
     conexiones_activas[charge_point_id] = cp_handler
     logger.info(f"🟢 Cargador {charge_point_id} conectado. Total en línea: {len(conexiones_activas)}")
     
-    # Al conectar el WebSocket, lo marcamos en línea de inmediato en la DB
-    db = SessionLocal()
-    cargador_inicial = db.query(models.Charger).filter(models.Charger.serial_number == charge_point_id).first()
-    if cargador_inicial:
-        cargador_inicial.status = "disponible"
-        cargador_inicial.last_heartbeat = datetime.now(timezone.utc)
-        db.commit()
-    db.close()
-    
     try:
         await cp_handler.start()
     except Exception as e:
         logger.warning(f"🔴 Cargador {charge_point_id} desconectado físicamente ({type(e).__name__}).")
     finally:
-        # Este bloque SIEMPRE se ejecuta al caer la conexión (corte de luz o Wi-Fi)
-        if charge_point_id in conexiones_activas:
+        # Solo borramos del diccionario si esta misma instancia sigue siendo la activa
+        if conexiones_activas.get(charge_point_id) is cp_handler:
             del conexiones_activas[charge_point_id]
             
-        db = SessionLocal()
-        try:
-            cargador = db.query(models.Charger).filter(models.Charger.serial_number == charge_point_id).first()
-            if cargador:
-                cargador.status = "fuera_de_linea"
-                conectores = db.query(models.Connector).filter_by(charger_id=cargador.id).all()
-                for conector in conectores:
-                    conector.status = "fuera_de_linea"
-                
-                # --- INTEGRACIÓN CON CONFIGURACIÓN: Alertas Críticas de Hardware ---
-                sys_config = db.query(models.SystemConfig).first()
-                if sys_config and sys_config.notif_hardware:
-                    logger.warning(f"🚨 [ALERTA CRÍTICA DE HARDWARE] El cargador {charge_point_id} perdió conexión. (Notificación activa en Configuración)")
-                
-                db.commit()
-        finally:
-            db.close()
+            db = SessionLocal()
+            try:
+                cargador = db.query(models.Charger).filter(models.Charger.serial_number == charge_point_id).first()
+                if cargador:
+                    cargador.status = "fuera_de_linea"
+                    conectores = db.query(models.Connector).filter_by(charger_id=cargador.id).all()
+                    for conector in conectores:
+                        conector.status = "fuera_de_linea"
+                    
+                    sys_config = db.query(models.SystemConfig).first()
+                    if sys_config and sys_config.notif_hardware:
+                        logger.warning(f"🚨 [ALERTA CRÍTICA DE HARDWARE] El cargador {charge_point_id} perdió conexión.")
+                    
+                    db.commit()
+            finally:
+                db.close()
             
 # ==============================================================
 # RUTAS API REST (Para que las consuma el Frontend React)
