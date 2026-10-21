@@ -32,6 +32,7 @@ class Charger(Base):
     location = Column(JSON) 
     is_active = Column(Boolean, default=True)
     tariff_id = Column(Integer, ForeignKey("tariffs.id"), nullable=True)
+    last_error_code = Column(String(100), default="NoError")
     
     # Campos dinámicos de hardware
     vendor = Column(String, nullable=True)
@@ -57,6 +58,7 @@ class Connector(Base):
     connector_id = Column(Integer, nullable=False)
     status = Column(String, default="disponible")
     type = Column(String, default="Desconocido")
+    error_code = Column(String(100), default="NoError")
     
     charger = relationship("Charger", back_populates="connectors")
 
@@ -65,6 +67,8 @@ class Transaction(Base):
     company_id = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=False, index=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     charger_id = Column(Integer, ForeignKey("chargers.id", ondelete="SET NULL"), nullable=True)
+    stop_reason = Column(String(100), default="Local")
+    error_code = Column(String(100), default="NoError")
     
     # --- Identificación OCPP y Estado ---
     connector_id = Column(Integer, default=1)

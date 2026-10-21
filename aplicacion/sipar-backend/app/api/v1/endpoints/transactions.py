@@ -43,6 +43,8 @@ class TransactionDetailResponse(BaseModel):
     charger_tension: str
     user_name: str
     user_email: str
+    stop_reason: Optional[str] = "Local"
+    error_code: Optional[str] = "NoError"
 
 @router.get("/", response_model=List[TransactionDetailResponse])
 def get_transactions(
@@ -111,6 +113,8 @@ def get_transactions(
             charger_address=address,
             charger_tension=charger.ande_tension_type if charger and charger.ande_tension_type else "baja",
             user_name=user_full_name or "Usuario App",
+            stop_reason=getattr(tx, "stop_reason", "Local") or "Local",
+            error_code=getattr(tx, "error_code", "NoError") or "NoError",
             user_email=user.email if user else "cliente@sipar.com"
         ))
 

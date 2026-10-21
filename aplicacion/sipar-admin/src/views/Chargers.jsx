@@ -336,13 +336,21 @@ export default function Chargers() {
                       <td className="p-4">
                         <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold flex items-center w-max gap-1.5 ${
                             charger.status === 'disponible' ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' :
-                            charger.status === 'en_uso' ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400' : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
+                            charger.status === 'conectado' ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400' :
+                            charger.status === 'en_uso' ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400' :
+                            charger.status === 'falla' ? 'bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-400' :
+                            'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
                         }`}>
                           <div className={`w-1.5 h-1.5 rounded-full animate-pulse ${
                               charger.status === 'disponible' ? 'bg-green-500' :
-                              charger.status === 'en_uso' ? 'bg-blue-500' : 'bg-red-500'
+                              charger.status === 'conectado' ? 'bg-amber-500' :
+                              charger.status === 'en_uso' ? 'bg-blue-500' :
+                              charger.status === 'falla' ? 'bg-orange-500' : 'bg-red-500'
                           }`}></div> 
-                          {charger.status === 'disponible' ? 'Disponible' : charger.status === 'en_uso' ? 'En Uso' : 'Fuera de Línea'}
+                          {charger.status === 'disponible' ? 'Disponible' : 
+                           charger.status === 'conectado' ? 'Auto Conectado (Sin corriente)' :
+                           charger.status === 'en_uso' ? 'Cargando (Pasando corriente)' : 
+                           charger.status === 'falla' ? `Falla (${charger.last_error_code || 'Error'})` : 'Fuera de Línea'}
                         </span>
                       </td>
                       <td className="p-4 text-right pr-6 flex justify-end gap-2">
@@ -580,10 +588,23 @@ Ubicación GPS
                       <span className="text-gray-500 dark:text-gray-400">Estado Manguera {activeConnector}:</span> 
                       <span className={`font-bold ${
                         displayStatus === 'disponible' ? 'text-green-600 dark:text-green-400' : 
+                        displayStatus === 'conectado' ? 'text-amber-500 dark:text-amber-400' :
                         displayStatus === 'en_uso' ? 'text-blue-600 dark:text-blue-400' : 'text-red-600 dark:text-red-400'
                       }`}>
-                        {displayStatus === 'disponible' ? 'Disponible' : 
-                         displayStatus === 'en_uso' ? 'Cargando Vehículo' : 'Fuera de Línea'}
+                        {displayStatus === 'disponible' ? 'Disponible (Libre)' : 
+                         displayStatus === 'conectado' ? 'Vehículo Conectado (0 A)' :
+                         displayStatus === 'en_uso' ? 'Pasando Corriente (Cargando)' : 
+                         displayStatus === 'falla' ? 'En Falla Técnica' : 'Fuera de Línea'}
+                      </span>
+                    </li>
+                    <li className="flex justify-between border-b border-gray-50 dark:border-gray-800 pb-2">
+                      <span className="text-gray-500 dark:text-gray-400">Código Error OCPP:</span> 
+                      <span className={`font-bold text-xs px-2 py-0.5 rounded ${
+                        (activeConnectorData?.error_code && activeConnectorData.error_code !== 'NoError') || (selectedCharger.last_error_code && selectedCharger.last_error_code !== 'NoError')
+                          ? 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400'
+                          : 'bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400'
+                      }`}>
+                        {activeConnectorData?.error_code || selectedCharger.last_error_code || 'NoError'}
                       </span>
                     </li>
                     <li className="flex justify-between border-b border-gray-50 dark:border-gray-800 pb-2">

@@ -13,6 +13,7 @@ class ConnectorResponse(BaseModel):
     connector_id: int
     status: str
     type: Optional[str] = "Desconocido"
+    error_code: Optional[str] = "NoError"
 
     class Config:
         from_attributes = True
@@ -50,6 +51,7 @@ class ChargerResponse(BaseModel):
     ande_peak_end: Optional[str] = "21:00"
     ande_peak_days: Optional[List[int]] = [1, 2, 3, 4, 5, 6]
     connectors: List[ConnectorResponse] = []
+    last_error_code: Optional[str] = "NoError"
 
     class Config:
         from_attributes = True

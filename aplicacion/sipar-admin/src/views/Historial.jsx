@@ -1,21 +1,33 @@
 import { useState, useEffect } from 'react';
 import { 
-  Receipt, Search, Download, Calendar, BatteryCharging, 
-  Clock, Zap, Leaf, CheckCircle2, AlertCircle, X, Loader2, ArrowUpRight
+  Receipt, Search, Clock, Zap, AlertTriangle, CheckCircle2, X, Loader2
 } from 'lucide-react';
 import api from '../api/axios';
+
+const OCPP_ERROR_LABELS = {
+  NoError: "Sin fallos reportados (NoError)",
+  ConnectorLockFailure: "Fallo en bloqueo del conector",
+  EVCommunicationError: "Error de comunicación con el vehículo",
+  GroundFailure: "Fallo de puesta a tierra",
+  HighTemperature: "Temperatura interna elevada",
+  InternalError: "Error interno del cargador",
+  OverCurrentFailure: "Sobrecorriente detectada",
+  OverVoltage: "Sobretensión en línea",
+  PowerMeterFailure: "Error en medidor de energía",
+  PowerSwitchFailure: "Fallo en contactor de potencia",
+  UnderVoltage: "Subtensión en red eléctrica",
+  WeakSignal: "Señal de comunicación débil"
+};
 
 export default function Historial() {
   const [transactions, setTransactions] = useState([]);
   const [chargers, setChargers] = useState([]);
   const [loading, setLoading] = useState(true);
   
-  // Filtros
   const [selectedCharger, setSelectedCharger] = useState('');
   const [selectedMonth, setSelectedMonth] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Modal de Detalle (Estilo VoltBras)
   const [selectedTx, setSelectedTx] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
@@ -33,6 +45,10 @@ export default function Historial() {
 
       setTransactions(txRes.data);
       setChargers(chRes.data);
+      if (selectedTx) {
+        const updated = txRes.data.find(t => t.id === selectedTx.id);
+        if (updated) setSelectedTx(updated);
+      }
     } catch (error) {
       console.error("Error al cargar historial:", error);
     } finally {
@@ -42,6 +58,8 @@ export default function Historial() {
 
   useEffect(() => {
     fetchData();
+    const interval = setInterval(fetchData, 5000);
+    return () => clearInterval(interval);
   }, [selectedCharger, selectedMonth]);
 
   const formatSeconds = (sec) => {
@@ -75,7 +93,7 @@ export default function Historial() {
           <h2 className="text-xl font-bold text-sipar-dark dark:text-white flex items-center gap-2">
             <Receipt className="w-6 h-6 text-sipar-orange" /> Historial de Recargas & Liquidación ANDE
           </h2>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Monitorea sesiones de carga, franjas horarias y costos de energía en tiempo real.</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Monitorea sesiones de carga, franjas horarias, costos de energía y diagnósticos de parada.</p>
         </div>
         
         <div className="flex items-center gap-3">
@@ -123,7 +141,7 @@ export default function Historial() {
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-gray-50 dark:bg-gray-900/50 border-b border-gray-100 dark:border-gray-800 text-[11px] uppercase tracking-wider text-gray-500 dark:text-gray-400 font-bold">
-                <th className="p-4 pl-6">ID & Horario</th>
+                <th className="p-4 pl-6">ID & Estado</th>
                 <th className="p-4">Estación / Conector</th>
                 <th className="p-4">Usuario</th>
                 <th className="p-4">Energía & Duración</th>
@@ -137,8 +155,17 @@ export default function Historial() {
                 filteredTxs.map((tx) => (
                   <tr key={tx.id} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/40 transition">
                     <td className="p-4 pl-6">
-                      <p className="font-bold text-sipar-dark dark:text-white">#{tx.id}</p>
-                      <p className="text-[11px] text-gray-400">
+                      <div className="flex items-center gap-2">
+                        <p className="font-bold text-sipar-dark dark:text-white">#{tx.id}</p>
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                          tx.status === 'concluida' 
+                            ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' 
+                            : 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 animate-pulse'
+                        }`}>
+                          {tx.status === 'concluida' ? 'Concluida' : 'En Curso'}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-gray-400 mt-0.5">
                         {tx.start_time ? new Date(tx.start_time).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : 'N/A'}
                       </p>
                     </td>
@@ -181,16 +208,19 @@ export default function Historial() {
         </div>
       </div>
 
-      {/* ================= MODAL DETALLE DE RECARGA (ESTILO VOLTBRAS) ================= */}
+      {/* ================= MODAL DETALLE DE RECARGA ================= */}
       {isModalOpen && selectedTx && (
         <div className="fixed inset-0 z-[150] flex items-center justify-center bg-sipar-dark/60 backdrop-blur-sm p-4 animate-[fadeIn_0.15s_ease-out]">
           <div className="bg-white dark:bg-sipar-dark rounded-[24px] w-full max-w-4xl shadow-2xl flex flex-col overflow-hidden border border-gray-200 dark:border-gray-800 animate-[slideUp_0.2s_ease-out] max-h-[92vh] transition-colors">
             
-            {/* Cabecera del Modal */}
             <div className="px-6 py-5 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center bg-sipar-dark text-white">
               <div className="flex items-center gap-3">
-                <span className="bg-green-500/20 text-green-400 border border-green-500/30 px-3 py-1 rounded-full text-xs font-bold">
-                  {selectedTx.status.toUpperCase()}
+                <span className={`px-3 py-1 rounded-full text-xs font-bold border ${
+                  selectedTx.status === 'concluida'
+                    ? 'bg-green-500/20 text-green-400 border-green-500/30'
+                    : 'bg-blue-500/20 text-blue-400 border-blue-500/30'
+                }`}>
+                  {selectedTx.status === 'concluida' ? 'CONCLUIDA' : 'EN CURSO'}
                 </span>
                 <div>
                   <h2 className="text-base font-bold">Recarga / #{selectedTx.id}</h2>
@@ -202,13 +232,26 @@ export default function Historial() {
               <button onClick={() => setIsModalOpen(false)} className="text-gray-400 hover:text-white transition bg-gray-800 p-1.5 rounded-full"><X className="w-5 h-5" /></button>
             </div>
 
-            {/* Contenido Desplazable */}
             <div className="p-6 overflow-y-auto hide-scroll space-y-6">
               
-              {/* Tarjetas Superiores: Horarios y Estación */}
+              {/* Alerta de Diagnóstico / Error OCPP si ocurrió alguno */}
+              <div className={`p-3.5 rounded-xl border flex items-center justify-between text-xs ${
+                selectedTx.error_code && selectedTx.error_code !== 'NoError'
+                  ? 'bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800 text-red-700 dark:text-red-300'
+                  : 'bg-green-50/60 dark:bg-green-950/20 border-green-200 dark:border-green-800/50 text-green-700 dark:text-green-300'
+              }`}>
+                <div className="flex items-center gap-2 font-bold">
+                  {selectedTx.error_code && selectedTx.error_code !== 'NoError' ? (
+                    <AlertTriangle className="w-4 h-4 text-red-500" />
+                  ) : (
+                    <CheckCircle2 className="w-4 h-4 text-green-500" />
+                  )}
+                  <span>Diagnóstico Hardware OCPP: {OCPP_ERROR_LABELS[selectedTx.error_code] || selectedTx.error_code || 'Sin fallos reportados'}</span>
+                </div>
+                <span className="font-mono text-[11px] opacity-80">Motivo de cierre: {selectedTx.stop_reason || 'Local'}</span>
+              </div>
+
               <div className="grid grid-cols-3 gap-4">
-                
-                {/* Inicio & Conclusión */}
                 <div className="bg-gray-50 dark:bg-gray-900/60 p-4 rounded-2xl border border-gray-100 dark:border-gray-800 flex flex-col justify-between">
                   <div>
                     <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Franja Horaria</p>
@@ -227,13 +270,18 @@ export default function Historial() {
                       </div>
                     </div>
                   </div>
-                  <div className="pt-2 border-t border-gray-200 dark:border-gray-800 flex justify-between text-[11px]">
-                    <span className="text-gray-500">Tiempo de Carga:</span>
-                    <span className="font-bold text-sipar-dark dark:text-white">{formatSeconds(selectedTx.duration_seconds)}</span>
+                  <div className="pt-2 border-t border-gray-200 dark:border-gray-800 space-y-1 text-[11px]">
+                    <div className="flex justify-between">
+                      <span className="text-gray-500">Tiempo de Carga:</span>
+                      <span className="font-bold text-sipar-dark dark:text-white">{formatSeconds(selectedTx.duration_seconds)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-500">Inactividad (Sin corriente):</span>
+                      <span className="font-bold text-amber-500">{formatSeconds(selectedTx.idle_seconds)}</span>
+                    </div>
                   </div>
                 </div>
 
-                {/* Estación y Conector */}
                 <div className="bg-gray-50 dark:bg-gray-900/60 p-4 rounded-2xl border border-gray-100 dark:border-gray-800">
                   <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Estación y Conector</p>
                   <p className="text-xs font-bold text-sipar-dark dark:text-white">{selectedTx.charger_serial} ({selectedTx.charger_power_kw} kW)</p>
@@ -241,20 +289,17 @@ export default function Historial() {
                   <p className="text-[11px] font-semibold text-sipar-orange mt-2">Conector: #{selectedTx.connector_id} (CCS 2)</p>
                 </div>
 
-                {/* Usuario y Método */}
                 <div className="bg-gray-50 dark:bg-gray-900/60 p-4 rounded-2xl border border-gray-100 dark:border-gray-800">
                   <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Usuario</p>
                   <p className="text-xs font-bold text-sipar-dark dark:text-white">{selectedTx.user_name}</p>
                   <p className="text-[11px] text-gray-500 dark:text-gray-400 truncate mt-0.5">{selectedTx.user_email}</p>
                   <p className="text-[11px] font-semibold text-gray-600 dark:text-gray-300 mt-2">Método desbloqueo: {selectedTx.unlock_method}</p>
                 </div>
-
               </div>
 
               {/* Bloque Financiero y Liquidación ANDE */}
               <div className="bg-white dark:bg-sipar-dark p-5 rounded-2xl border border-gray-200 dark:border-gray-700">
                 <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4">Detalle de Pago & Costo ANDE (Liquidación)</h3>
-                
                 <div className="grid grid-cols-2 gap-6">
                   <div className="space-y-3 text-sm">
                     <div className="flex justify-between border-b border-gray-50 dark:border-gray-800 pb-2">
@@ -281,7 +326,7 @@ export default function Historial() {
                       <span className="font-bold text-blue-700 dark:text-blue-400 text-xs">{selectedTx.ande_applied_rate.toLocaleString('es-PY')} ₲/kWh</span>
                     </div>
                     <div className="flex justify-between pt-2 border-t border-blue-200 dark:border-blue-800">
-                      <span className="text-blue-900 dark:text-blue-200 font-bold text-xs">Costo de Energía (ANDÉ):</span>
+                      <span className="text-blue-900 dark:text-blue-200 font-bold text-xs">Costo de Energía (ANDE):</span>
                       <span className="font-bold text-blue-600 dark:text-blue-400 text-sm">{selectedTx.ande_energy_cost_pyg.toLocaleString('es-PY')} ₲</span>
                     </div>
                   </div>
@@ -308,7 +353,7 @@ export default function Historial() {
                 </div>
               </div>
 
-              {/* Gráfico de Consumo (Simulado / Telemetría OCPP) */}
+              {/* Gráfico de Consumo */}
               <div className="bg-white dark:bg-sipar-dark p-5 rounded-2xl border border-gray-200 dark:border-gray-700">
                 <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4">Curva de Carga & Telemetría</h3>
                 <div className="h-36 w-full bg-gray-50 dark:bg-gray-900/50 rounded-xl flex items-end justify-between px-4 pb-2 border border-gray-100 dark:border-gray-800">
