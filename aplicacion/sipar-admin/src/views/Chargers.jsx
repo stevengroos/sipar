@@ -10,6 +10,28 @@ import api from '../api/axios';
 const mapContainerStyle = { width: '100%', height: '250px', borderRadius: '12px' };
 const defaultCenter = { lat: -25.270, lng: -57.520 };
 
+const OCPP_ERROR_LABELS = {
+  NoError: "Sin fallos reportados (Operación Normal)",
+  ConnectorLockFailure: "Fallo en bloqueo electromecánico del conector",
+  EVCommunicationError: "Mala conexión con el vehículo / Carga abortada (0 Wh)",
+  GroundFailure: "Fallo de puesta a tierra / Tensión inestable",
+  HighTemperature: "Alerta de alta temperatura interna",
+  InternalError: "Error interno del hardware del cargador",
+  OverCurrentFailure: "Protección por sobrecorriente activada",
+  OverVoltage: "Sobretensión en la línea de alimentación",
+  PowerMeterFailure: "Error en medidor de energía",
+  PowerSwitchFailure: "Fallo en contactor / relé de potencia",
+  UnderVoltage: "Baja tensión / Falla de tierra en red eléctrica",
+  WeakSignal: "Señal de comunicación débil"
+};
+
+const getReadableError = (code) => {
+  if (!code || code === 'NoError') return 'Sin fallos reportados (NoError)';
+  if (OCPP_ERROR_LABELS[code]) return OCPP_ERROR_LABELS[code];
+  const baseKey = Object.keys(OCPP_ERROR_LABELS).find(k => code.startsWith(k));
+  return baseKey ? `${OCPP_ERROR_LABELS[baseKey]} — ${code}` : code;
+};
+
 export default function Chargers() {
   const [chargers, setChargers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -233,6 +255,9 @@ export default function Chargers() {
   const displayStatus = selectedCharger?.status === 'fuera_de_linea' 
     ? 'fuera_de_linea' 
     : (activeConnectorData ? activeConnectorData.status : selectedCharger?.status);
+  const activeErrorCode = activeConnectorData?.error_code && activeConnectorData.error_code !== 'NoError'
+    ? activeConnectorData.error_code
+    : (selectedCharger?.last_error_code || 'NoError');
 
   return (
     <div className="block animate-[fadeIn_0.2s_ease-out] relative">
@@ -305,7 +330,7 @@ export default function Chargers() {
                 <th className="p-4 pl-6">ID / Serie</th>
                 <th className="p-4">Potencia</th>
                 <th className="p-4">Ubicación</th>
-                <th className="p-4">Estado</th>
+                <th className="p-4">Estado Operativo</th>
                 <th className="p-4 text-right pr-6">Acciones</th>
               </tr>
             </thead>
@@ -321,6 +346,8 @@ export default function Chargers() {
                     }
                   }
 
+                  const hasError = charger.last_error_code && charger.last_error_code !== 'NoError';
+
                   return (
                     <tr key={charger.id} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/40 transition">
                       <td className="p-4 pl-6">
@@ -334,24 +361,31 @@ export default function Chargers() {
                         </p>
                       </td>
                       <td className="p-4">
-                        <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold flex items-center w-max gap-1.5 ${
-                            charger.status === 'disponible' ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' :
-                            charger.status === 'conectado' ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400' :
-                            charger.status === 'en_uso' ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400' :
-                            charger.status === 'falla' ? 'bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-400' :
-                            'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
-                        }`}>
-                          <div className={`w-1.5 h-1.5 rounded-full animate-pulse ${
-                              charger.status === 'disponible' ? 'bg-green-500' :
-                              charger.status === 'conectado' ? 'bg-amber-500' :
-                              charger.status === 'en_uso' ? 'bg-blue-500' :
-                              charger.status === 'falla' ? 'bg-orange-500' : 'bg-red-500'
-                          }`}></div> 
-                          {charger.status === 'disponible' ? 'Disponible' : 
-                           charger.status === 'conectado' ? 'Auto Conectado (Sin corriente)' :
-                           charger.status === 'en_uso' ? 'Cargando (Pasando corriente)' : 
-                           charger.status === 'falla' ? `Falla (${charger.last_error_code || 'Error'})` : 'Fuera de Línea'}
-                        </span>
+                        <div className="flex flex-col gap-1">
+                          <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold flex items-center w-max gap-1.5 ${
+                              charger.status === 'disponible' ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' :
+                              charger.status === 'conectado' ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400' :
+                              charger.status === 'en_uso' ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400' :
+                              charger.status === 'falla' ? 'bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-400 border border-orange-300 dark:border-orange-800' :
+                              'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
+                          }`}>
+                            <div className={`w-1.5 h-1.5 rounded-full animate-pulse ${
+                                charger.status === 'disponible' ? 'bg-green-500' :
+                                charger.status === 'conectado' ? 'bg-amber-500' :
+                                charger.status === 'en_uso' ? 'bg-blue-500' :
+                                charger.status === 'falla' ? 'bg-orange-500' : 'bg-red-500'
+                            }`}></div> 
+                            {charger.status === 'disponible' ? 'Disponible' : 
+                             charger.status === 'conectado' ? 'Auto Conectado (Sin corriente)' :
+                             charger.status === 'en_uso' ? 'Cargando (Pasando corriente)' : 
+                             charger.status === 'falla' ? `Falla: ${charger.last_error_code || 'Error'}` : 'Fuera de Línea'}
+                          </span>
+                          {hasError && charger.status !== 'falla' && (
+                            <span className="text-[10px] text-orange-600 dark:text-orange-400 font-semibold flex items-center gap-1">
+                              <AlertTriangle className="w-3 h-3" /> Última alerta: {charger.last_error_code}
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="p-4 text-right pr-6 flex justify-end gap-2">
                         <button onClick={() => openDetails(charger)} className="p-1.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 hover:text-sipar-dark dark:hover:text-white shadow-sm transition" title="Ver Diagnóstico">
@@ -458,7 +492,7 @@ Ubicación GPS
                     </div>
                   </div>
 
-                  {/* CONFIGURACIÓN DE COSTO ANDE (LIQUIDACIÓN PROPIETARIO) - DENTRO DEL FORMULARIO */}
+                  {/* CONFIGURACIÓN DE COSTO ANDE (LIQUIDACIÓN PROPIETARIO) */}
                   <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
                     <h4 className="text-xs font-bold text-sipar-orange uppercase tracking-wide mb-3">Parámetros de Costo ANDE (Liquidación Propietario)</h4>
                     
@@ -531,20 +565,42 @@ Ubicación GPS
               <div className="flex items-center gap-4">
                 <span className={`px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 border ${
                   selectedCharger.status === 'disponible' ? 'bg-green-500/20 text-green-400 border-green-500/30' :
+                  selectedCharger.status === 'conectado' ? 'bg-amber-500/20 text-amber-400 border-amber-500/30' :
                   selectedCharger.status === 'en_uso' ? 'bg-blue-500/20 text-blue-400 border-blue-500/30' : 
+                  selectedCharger.status === 'falla' ? 'bg-orange-500/20 text-orange-400 border-orange-500/30' :
                   'bg-red-500/20 text-red-400 border-red-500/30'
                 }`}>
                   <div className={`w-1.5 h-1.5 rounded-full animate-pulse ${
                     selectedCharger.status === 'disponible' ? 'bg-green-400' :
-                    selectedCharger.status === 'en_uso' ? 'bg-blue-400' : 'bg-red-400'
+                    selectedCharger.status === 'conectado' ? 'bg-amber-400' :
+                    selectedCharger.status === 'en_uso' ? 'bg-blue-400' : 
+                    selectedCharger.status === 'falla' ? 'bg-orange-400' : 'bg-red-400'
                   }`}></div> 
-                  {selectedCharger.status === 'disponible' ? 'En línea' : selectedCharger.status === 'en_uso' ? 'En Uso' : 'Desconectado'}
+                  {selectedCharger.status === 'disponible' ? 'En línea (Libre)' : 
+                   selectedCharger.status === 'conectado' ? 'Auto Conectado (0 A)' :
+                   selectedCharger.status === 'en_uso' ? 'Cargando (Con corriente)' : 
+                   selectedCharger.status === 'falla' ? 'Falla Detectada' : 'Desconectado'}
                 </span>
                 <button onClick={() => setIsDetailsOpen(false)} className="text-gray-400 hover:text-white transition"><X className="w-6 h-6" /></button>
               </div>
             </div>
             
             <div className="p-6">
+              {/* BANNER DE ALERTA SI HAY UNA FALLA DE TIERRA O MALA CONEXIÓN */}
+              {activeErrorCode !== 'NoError' && (
+                <div className="mb-5 p-3.5 rounded-xl bg-red-50 dark:bg-red-950/35 border border-red-200 dark:border-red-800/70 flex items-center justify-between text-xs text-red-700 dark:text-red-300">
+                  <div className="flex items-center gap-2.5">
+                    <AlertTriangle className="w-5 h-5 text-red-500 shrink-0" />
+                    <div>
+                      <p className="font-extrabold text-sm">Diagnóstico de Falla OCPP: {getReadableError(activeErrorCode)}</p>
+                      <p className="text-[11px] opacity-85 mt-0.5">
+                        El cargador reportó una anomalía eléctrica (ej. baja tensión / falla de tierra) o interrupción de comunicación con el vehículo.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* SELECTOR MANGUERAS */}
               <div className="flex items-center gap-3 mb-6 pb-6 border-b border-gray-100 dark:border-gray-800">
                 <span className="text-[13px] font-bold text-gray-400 uppercase tracking-wider">Controlando:</span>
@@ -564,6 +620,8 @@ Ubicación GPS
                       >
                         <div className={`w-2 h-2 rounded-full ${
                           connectorRealStatus === 'en_uso' ? 'bg-blue-500' : 
+                          connectorRealStatus === 'conectado' ? 'bg-amber-500' :
+                          connectorRealStatus === 'falla' ? 'bg-orange-500' :
                           connectorRealStatus === 'fuera_de_linea' ? 'bg-red-500' : 
                           'bg-green-500'
                         }`}></div>
@@ -589,7 +647,8 @@ Ubicación GPS
                       <span className={`font-bold ${
                         displayStatus === 'disponible' ? 'text-green-600 dark:text-green-400' : 
                         displayStatus === 'conectado' ? 'text-amber-500 dark:text-amber-400' :
-                        displayStatus === 'en_uso' ? 'text-blue-600 dark:text-blue-400' : 'text-red-600 dark:text-red-400'
+                        displayStatus === 'en_uso' ? 'text-blue-600 dark:text-blue-400' : 
+                        displayStatus === 'falla' ? 'text-orange-500 dark:text-orange-400' : 'text-red-600 dark:text-red-400'
                       }`}>
                         {displayStatus === 'disponible' ? 'Disponible (Libre)' : 
                          displayStatus === 'conectado' ? 'Vehículo Conectado (0 A)' :
@@ -597,14 +656,14 @@ Ubicación GPS
                          displayStatus === 'falla' ? 'En Falla Técnica' : 'Fuera de Línea'}
                       </span>
                     </li>
-                    <li className="flex justify-between border-b border-gray-50 dark:border-gray-800 pb-2">
+                    <li className="flex justify-between items-center border-b border-gray-50 dark:border-gray-800 pb-2">
                       <span className="text-gray-500 dark:text-gray-400">Código Error OCPP:</span> 
                       <span className={`font-bold text-xs px-2 py-0.5 rounded ${
-                        (activeConnectorData?.error_code && activeConnectorData.error_code !== 'NoError') || (selectedCharger.last_error_code && selectedCharger.last_error_code !== 'NoError')
+                        activeErrorCode !== 'NoError'
                           ? 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400'
                           : 'bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400'
                       }`}>
-                        {activeConnectorData?.error_code || selectedCharger.last_error_code || 'NoError'}
+                        {activeErrorCode}
                       </span>
                     </li>
                     <li className="flex justify-between border-b border-gray-50 dark:border-gray-800 pb-2">

@@ -9,16 +9,23 @@ import api from '../api/axios';
 const OCPP_ERROR_LABELS = {
   NoError: "Sin fallos reportados (NoError)",
   ConnectorLockFailure: "Fallo en bloqueo del conector",
-  EVCommunicationError: "Error de comunicación con el vehículo",
-  GroundFailure: "Fallo de puesta a tierra",
+  EVCommunicationError: "Mala conexión con el vehículo / Carga abortada (0 Wh)",
+  GroundFailure: "Fallo de puesta a tierra / Baja tensión en línea",
   HighTemperature: "Temperatura interna elevada",
   InternalError: "Error interno del cargador",
   OverCurrentFailure: "Sobrecorriente detectada",
   OverVoltage: "Sobretensión en línea",
   PowerMeterFailure: "Error en medidor de energía",
   PowerSwitchFailure: "Fallo en contactor de potencia",
-  UnderVoltage: "Subtensión en red eléctrica",
+  UnderVoltage: "Subtensión / Falla de tierra en red eléctrica",
   WeakSignal: "Señal de comunicación débil"
+};
+
+const getReadableError = (code) => {
+  if (!code || code === 'NoError') return 'Sin fallos reportados (NoError)';
+  if (OCPP_ERROR_LABELS[code]) return OCPP_ERROR_LABELS[code];
+  const baseKey = Object.keys(OCPP_ERROR_LABELS).find(k => code.startsWith(k));
+  return baseKey ? `${OCPP_ERROR_LABELS[baseKey]} — ${code}` : code;
 };
 
 export default function Historial() {
@@ -129,7 +136,7 @@ export default function Historial() {
     return `hace ${diffDays} ${diffDays === 1 ? 'día' : 'días'}`;
   };
 
-  // Generador de UUID visual determinístico basado en el ID de la recarga (como VoltBras)
+  // Generador de UUID visual determinístico basado en el ID de la recarga
   const formatSessionUuid = (tx) => {
     const hexId = Number(tx?.id || 1).toString(16).padStart(8, '0');
     const chargerHex = Number(tx?.charger_id || 1).toString(16).padStart(4, '0');
@@ -167,7 +174,8 @@ export default function Historial() {
           time: pt.time || '',
           kwh: kwhVal,
           kw: kwVal,
-          soc: socVal
+          soc: socVal,
+          voltage: pt.voltage || 220
         };
       });
     } else {
@@ -180,8 +188,9 @@ export default function Historial() {
         pts.push({
           time: tStr,
           kwh: Number((totalKwh * ratio).toFixed(2)),
-          kw: Number((avgKw > 0 ? avgKw : maxKwVal * 0.6).toFixed(2)),
-          soc: Math.min(100, Math.round(25 + ratio * 55))
+          kw: Number((avgKw > 0 ? avgKw : (totalKwh > 0 ? maxKwVal * 0.6 : 0)).toFixed(2)),
+          soc: Math.min(100, Math.round(25 + ratio * 55)),
+          voltage: rawLog[0]?.voltage || 220
         });
       }
     }
@@ -196,7 +205,8 @@ export default function Historial() {
     return transactions.filter(tx => 
       tx.id.toString().includes(searchTerm) ||
       tx.charger_serial.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      tx.user_name.toLowerCase().includes(searchTerm.toLowerCase())
+      tx.user_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (tx.error_code && tx.error_code.toLowerCase().includes(searchTerm.toLowerCase()))
     );
   }, [transactions, searchTerm]);
 
@@ -296,8 +306,8 @@ export default function Historial() {
               <Search className="w-4 h-4 text-gray-400" />
               <input 
                 type="text" 
-                placeholder="Buscar ID, estación o usuario..." 
-                className="bg-transparent border-none text-sm text-white focus:outline-none placeholder-gray-500 w-56"
+                placeholder="Buscar ID, estación, error o usuario..." 
+                className="bg-transparent border-none text-sm text-white focus:outline-none placeholder-gray-500 w-60"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
@@ -320,52 +330,60 @@ export default function Historial() {
             </thead>
             <tbody className="divide-y divide-gray-50 dark:divide-gray-800 text-sm">
               {paginatedTxs.length > 0 ? (
-                paginatedTxs.map((tx) => (
-                  <tr key={tx.id} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/40 transition">
-                    <td className="p-4 pl-6">
-                      <div className="flex items-center gap-2">
-                        <p className="font-bold text-sipar-dark dark:text-white">#{tx.id}</p>
-                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                          tx.status === 'concluida' 
-                            ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' 
-                            : 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 animate-pulse'
-                        }`}>
-                          {tx.status === 'concluida' ? 'Concluida' : 'En Curso'}
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-gray-400 mt-0.5">
-                        {tx.start_time ? new Date(tx.start_time).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : 'N/A'}
-                      </p>
-                    </td>
-                    <td className="p-4">
-                      <p className="font-bold text-sipar-dark dark:text-white">{tx.charger_serial}</p>
-                      <p className="text-[11px] text-gray-400">Conector #{tx.connector_id}</p>
-                    </td>
-                    <td className="p-4">
-                      <p className="font-bold text-gray-700 dark:text-gray-300">{tx.user_name}</p>
-                      <p className="text-[11px] text-gray-400">{tx.user_email}</p>
-                    </td>
-                    <td className="p-4">
-                      <p className="font-bold text-sipar-orange">{tx.kwh_delivered} kWh</p>
-                      <p className="text-[11px] text-gray-400 flex items-center gap-1"><Clock className="w-3 h-3" /> {formatSeconds(tx.duration_seconds)}</p>
-                    </td>
-                    <td className="p-4">
-                      <p className="font-bold text-blue-600 dark:text-blue-400">{tx.ande_energy_cost_pyg.toLocaleString('es-PY')} ₲</p>
-                      <span className="text-[10px] bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded font-bold">{tx.time_band_label}</span>
-                    </td>
-                    <td className="p-4 font-bold text-green-600 dark:text-green-400">
-                      {tx.total_amount_pyg.toLocaleString('es-PY')} ₲
-                    </td>
-                    <td className="p-4 text-right pr-6">
-                      <button 
-                        onClick={() => { setSelectedTx(tx); setActiveTab('general'); setIsModalOpen(true); }}
-                        className="px-3 py-1.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-sipar-dark dark:text-white rounded-lg text-xs font-bold hover:bg-sipar-orange hover:text-white dark:hover:bg-sipar-orange transition shadow-sm"
-                      >
-                        Ver Detalle
-                      </button>
-                    </td>
-                  </tr>
-                ))
+                paginatedTxs.map((tx) => {
+                  const hasError = tx.error_code && tx.error_code !== 'NoError';
+                  return (
+                    <tr key={tx.id} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/40 transition">
+                      <td className="p-4 pl-6">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="font-bold text-sipar-dark dark:text-white">#{tx.id}</p>
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                            tx.status === 'concluida' 
+                              ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' 
+                              : 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 animate-pulse'
+                          }`}>
+                            {tx.status === 'concluida' ? 'Concluida' : 'En Curso'}
+                          </span>
+                          {hasError && (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-400 flex items-center gap-1 border border-red-200 dark:border-red-800">
+                              <AlertTriangle className="w-3 h-3" /> {tx.error_code}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-gray-400 mt-0.5">
+                          {tx.start_time ? new Date(tx.start_time).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : 'N/A'}
+                        </p>
+                      </td>
+                      <td className="p-4">
+                        <p className="font-bold text-sipar-dark dark:text-white">{tx.charger_serial}</p>
+                        <p className="text-[11px] text-gray-400">Conector #{tx.connector_id}</p>
+                      </td>
+                      <td className="p-4">
+                        <p className="font-bold text-gray-700 dark:text-gray-300">{tx.user_name}</p>
+                        <p className="text-[11px] text-gray-400">{tx.user_email}</p>
+                      </td>
+                      <td className="p-4">
+                        <p className="font-bold text-sipar-orange">{tx.kwh_delivered} kWh</p>
+                        <p className="text-[11px] text-gray-400 flex items-center gap-1"><Clock className="w-3 h-3" /> {formatSeconds(tx.duration_seconds)}</p>
+                      </td>
+                      <td className="p-4">
+                        <p className="font-bold text-blue-600 dark:text-blue-400">{tx.ande_energy_cost_pyg.toLocaleString('es-PY')} ₲</p>
+                        <span className="text-[10px] bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded font-bold">{tx.time_band_label}</span>
+                      </td>
+                      <td className="p-4 font-bold text-green-600 dark:text-green-400">
+                        {tx.total_amount_pyg.toLocaleString('es-PY')} ₲
+                      </td>
+                      <td className="p-4 text-right pr-6">
+                        <button 
+                          onClick={() => { setSelectedTx(tx); setActiveTab('general'); setIsModalOpen(true); }}
+                          className="px-3 py-1.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-sipar-dark dark:text-white rounded-lg text-xs font-bold hover:bg-sipar-orange hover:text-white dark:hover:bg-sipar-orange transition shadow-sm"
+                        >
+                          Ver Detalle
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })
               ) : (
                 <tr>
                   <td colSpan="7" className="p-8 text-center text-gray-400 dark:text-gray-500">No se encontraron recargas en este período.</td>
@@ -454,7 +472,6 @@ export default function Historial() {
             <div className="px-7 pt-6 pb-0 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-[#161B26] shrink-0">
               <div className="flex justify-between items-start">
                 <div>
-                  {/* Fila Estado + Hace X horas */}
                   <div className="flex items-center gap-3 mb-2">
                     <span className={`px-3 py-1 rounded-md text-xs font-bold flex items-center gap-1.5 ${
                       selectedTx.status === 'concluida'
@@ -464,18 +481,21 @@ export default function Historial() {
                       <CheckCircle2 className="w-3.5 h-3.5" />
                       {selectedTx.status === 'concluida' ? 'Concluida' : 'En Curso'}
                     </span>
+                    {selectedTx.error_code && selectedTx.error_code !== 'NoError' && (
+                      <span className="px-2.5 py-1 rounded-md text-xs font-bold bg-red-500/15 text-red-500 border border-red-500/30 flex items-center gap-1.5">
+                        <AlertTriangle className="w-3.5 h-3.5" /> {selectedTx.error_code}
+                      </span>
+                    )}
                     <span className="text-xs text-gray-400 font-medium">
                       {formatRelativeTime(selectedTx.end_time || selectedTx.start_time)}
                     </span>
                   </div>
 
-                  {/* Título Recarga / UUID */}
                   <h2 className="text-lg font-normal text-gray-500 dark:text-gray-300">
                     Recarga / <span className="font-bold text-sipar-dark dark:text-white font-mono text-base">{formatSessionUuid(selectedTx)}</span>
                     <span className="ml-2 text-xs text-gray-400 font-mono">(#{selectedTx.id})</span>
                   </h2>
 
-                  {/* Subtítulo Resumen: Duración • kWh • PYG */}
                   <div className="flex items-center gap-4 text-xs text-gray-500 dark:text-gray-400 mt-2 font-medium">
                     <span className="flex items-center gap-1">
                       <Clock className="w-3.5 h-3.5 text-gray-400" /> {formatSeconds(selectedTx.duration_seconds)}
@@ -497,7 +517,6 @@ export default function Historial() {
                 </button>
               </div>
 
-              {/* Pestañas: General | Registros de la recarga */}
               <div className="flex items-center gap-6 mt-5">
                 <button
                   onClick={() => setActiveTab('general')}
@@ -527,13 +546,28 @@ export default function Historial() {
               
               {activeTab === 'general' ? (
                 <>
+                  {/* BANNER DE ALERTA SI HUBO FALLA DE TIERRA O MALA CONEXIÓN */}
+                  {selectedTx.error_code && selectedTx.error_code !== 'NoError' && (
+                    <div className="p-4 rounded-xl border bg-red-50 dark:bg-red-950/35 border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 flex items-center justify-between text-xs shadow-sm">
+                      <div className="flex items-center gap-3 font-bold">
+                        <AlertTriangle className="w-5 h-5 text-red-500 shrink-0" />
+                        <div>
+                          <p className="text-sm font-extrabold">Alerta Detectada: {getReadableError(selectedTx.error_code)}</p>
+                          <p className="text-[11px] opacity-85 font-normal mt-0.5">
+                            El sistema registró una anomalía eléctrica en la línea o un corte prematuro sin transferencia de energía.
+                          </p>
+                        </div>
+                      </div>
+                      <span className="font-mono text-[11px] bg-red-100 dark:bg-red-900/50 px-2.5 py-1 rounded-md font-bold shrink-0">
+                        Motivo: {selectedTx.stop_reason || 'Aborted'}
+                      </span>
+                    </div>
+                  )}
+
                   {/* ================= FILA 1: HORARIOS, ESTACIÓN Y USUARIO ================= */}
                   <div className="grid grid-cols-12 gap-4 items-stretch">
                     
-                    {/* Bloque Izquierdo (6 cols): Inicio -> Conclusión + Tiempo de carga / Inactividad */}
                     <div className="col-span-12 lg:col-span-6 bg-white dark:bg-[#161B26] p-4 rounded-xl border border-gray-200 dark:border-gray-800 flex items-center justify-between gap-2 shadow-sm">
-                      
-                      {/* Sub-tarjeta INICIO */}
                       <div className="bg-gray-100/80 dark:bg-gray-800/70 p-3.5 rounded-lg flex-1 min-w-0">
                         <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">INICIO</p>
                         <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1 truncate">
@@ -546,7 +580,6 @@ export default function Historial() {
 
                       <ChevronRight className="w-4 h-4 text-gray-400 shrink-0" />
 
-                      {/* Sub-tarjeta CONCLUSIÓN + Tiempos */}
                       <div className="bg-gray-100/80 dark:bg-gray-800/70 p-3.5 rounded-lg flex-[1.8] flex items-center justify-between gap-3 min-w-0">
                         <div className="min-w-0">
                           <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">CONCLUSIÓN</p>
@@ -573,10 +606,8 @@ export default function Historial() {
                           </div>
                         </div>
                       </div>
-
                     </div>
 
-                    {/* Bloque Central (3 cols): ESTACIÓN Y CONECTOR */}
                     <div className="col-span-12 md:col-span-6 lg:col-span-3 bg-white dark:bg-[#161B26] p-4 rounded-xl border border-gray-200 dark:border-gray-800 flex flex-col justify-between shadow-sm">
                       <div>
                         <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">ESTACIÓN Y CONECTOR</p>
@@ -603,7 +634,6 @@ export default function Historial() {
                       </div>
                     </div>
 
-                    {/* Bloque Derecho (3 cols): USUARIO */}
                     <div className="col-span-12 md:col-span-6 lg:col-span-3 bg-white dark:bg-[#161B26] p-4 rounded-xl border border-gray-200 dark:border-gray-800 flex flex-col justify-between shadow-sm">
                       <div>
                         <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">USUARIO</p>
@@ -638,7 +668,6 @@ export default function Historial() {
 
                     <div className="grid grid-cols-12 gap-4 items-start">
                       
-                      {/* Columna 1 (4 cols): Tarjetas Captado y Autorizado previamente */}
                       <div className="col-span-12 lg:col-span-4 space-y-3">
                         <div className="bg-white dark:bg-[#161B26] p-4 rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm">
                           <div className="flex items-center gap-2">
@@ -675,7 +704,6 @@ export default function Historial() {
                         </div>
                       </div>
 
-                      {/* Columna 2 (5 cols): Desglose de Coste Total + Liquidación ANDE */}
                       <div className="col-span-12 lg:col-span-5 bg-white dark:bg-[#161B26] p-5 rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm">
                         <div className="flex justify-between items-center pb-3 border-b border-gray-100 dark:border-gray-800">
                           <span className="text-sm font-bold text-sipar-dark dark:text-white">Coste total:</span>
@@ -708,7 +736,6 @@ export default function Historial() {
                           </div>
                         </div>
 
-                        {/* Desplegable: Más detalles (Liquidación Propietario ANDE) */}
                         <div className="pt-2 border-t border-gray-100 dark:border-gray-800">
                           <button
                             type="button"
@@ -737,7 +764,6 @@ export default function Historial() {
                         </div>
                       </div>
 
-                      {/* Columna 3 (3 cols): Medio de Pago */}
                       <div className="col-span-12 lg:col-span-3 bg-white dark:bg-[#161B26] p-5 rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm">
                         <p className="text-sm font-bold text-sipar-dark dark:text-white mb-3">Medio de pago:</p>
                         <div className="p-3.5 rounded-xl border border-gray-100 dark:border-gray-800 bg-gray-50/70 dark:bg-gray-900/50">
@@ -819,7 +845,6 @@ export default function Historial() {
                     <h3 className="text-sm font-bold text-sipar-dark dark:text-white mb-3">Gráfico de consumo</h3>
                     <div className="bg-white dark:bg-[#161B26] p-5 rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm overflow-hidden">
                       
-                      {/* Leyenda Superior */}
                       <div className="flex flex-wrap items-center gap-6 mb-4 text-xs">
                         <span className="flex items-center gap-2 text-gray-600 dark:text-gray-300 font-medium">
                           <span className="w-3.5 h-3.5 rounded bg-emerald-500 inline-block"></span>
@@ -835,7 +860,6 @@ export default function Historial() {
                         </span>
                       </div>
 
-                      {/* Lienzo SVG Responsivo (Nunca desborda el modal) */}
                       <div className="w-full relative">
                         <svg viewBox="0 0 800 220" className="w-full h-52 overflow-visible">
                           <defs>
@@ -849,11 +873,9 @@ export default function Historial() {
                             </linearGradient>
                           </defs>
 
-                          {/* Etiquetas de Unidades en los Ejes */}
                           <text x="10" y="16" className="fill-gray-400 text-[11px] font-semibold">[kWh]</text>
                           <text x="765" y="16" className="fill-gray-400 text-[11px] font-semibold">[kW]</text>
 
-                          {/* Líneas Guía Horizontales */}
                           {[0, 0.5, 1].map((ratio, idx) => {
                             const y = 180 - ratio * 145;
                             const kwhLabel = Math.round(chartData.maxKwh * ratio);
@@ -867,7 +889,6 @@ export default function Historial() {
                             );
                           })}
 
-                          {/* Curvas y Puntos */}
                           {(() => {
                             const pts = chartData.points;
                             if (pts.length === 0) return null;
@@ -889,7 +910,6 @@ export default function Historial() {
                             const socPath = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${getX(i)} ${getYSoc(p.soc)}`).join(' ');
                             const socArea = `${socPath} L ${getX(pts.length - 1)} ${bottomY} L ${getX(0)} ${bottomY} Z`;
 
-                            // 4 marcas de hora en el eje X
                             const labelIndices = [
                               0,
                               Math.floor((pts.length - 1) * 0.33),
@@ -909,7 +929,7 @@ export default function Historial() {
                                 {pts.map((p, i) => (
                                   <g key={i}>
                                     <circle cx={getX(i)} cy={getYSoc(p.soc)} r="2.8" className="fill-white dark:fill-gray-900" stroke="#0ea5e9" strokeWidth="1.8">
-                                      <title>{`${p.time} • SoC: ${p.soc}%`}</title>
+                                      <title>{`${p.time} • SoC: ${p.soc}% • Tensión: ${p.voltage || 220}V`}</title>
                                     </circle>
                                     <circle cx={getX(i)} cy={getYKw(p.kw)} r="2.8" className="fill-white dark:fill-gray-900" stroke="#9333ea" strokeWidth="1.8">
                                       <title>{`${p.time} • Potencia: ${p.kw} kW`}</title>
@@ -954,7 +974,7 @@ export default function Historial() {
                       ) : (
                         <CheckCircle2 className="w-4 h-4 text-green-500" />
                       )}
-                      <span>Diagnóstico OCPP: {OCPP_ERROR_LABELS[selectedTx.error_code] || selectedTx.error_code || 'Sin fallos reportados'}</span>
+                      <span>Diagnóstico OCPP: {getReadableError(selectedTx.error_code)}</span>
                     </div>
                     <span className="font-mono text-[11px]">Motivo de parada (StopReason): {selectedTx.stop_reason || 'Local'}</span>
                   </div>
@@ -972,6 +992,7 @@ export default function Historial() {
                             <th className="p-3">Hora</th>
                             <th className="p-3">Energía Acumulada</th>
                             <th className="p-3">Potencia Instantánea</th>
+                            <th className="p-3">Tensión Línea</th>
                             <th className="p-3">SoC Vehículo</th>
                           </tr>
                         </thead>
@@ -982,6 +1003,9 @@ export default function Historial() {
                               <td className="p-3 font-bold text-sipar-dark dark:text-white">{pt.time}</td>
                               <td className="p-3 text-emerald-600 dark:text-emerald-400 font-bold">{pt.kwh} kWh</td>
                               <td className="p-3 text-purple-600 dark:text-purple-400 font-bold">{pt.kw} kW</td>
+                              <td className={`p-3 font-bold ${pt.voltage < 185 ? 'text-red-500' : 'text-gray-600 dark:text-gray-300'}`}>
+                                {pt.voltage || 220} V
+                              </td>
                               <td className="p-3 text-sky-600 dark:text-sky-400 font-bold">{pt.soc}%</td>
                             </tr>
                           ))}
