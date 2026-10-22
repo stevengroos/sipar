@@ -50,6 +50,7 @@ class TransactionDetailResponse(BaseModel):
 def get_transactions(
     charger_id: Optional[int] = Query(None),
     month: Optional[str] = Query(None, description="Formato YYYY-MM, ej: 2026-10"),
+    limit: int = Query(2000, ge=1, le=10000),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(deps.get_current_active_user)
 ):
@@ -69,7 +70,8 @@ def get_transactions(
         except ValueError:
             pass
 
-    txs = query.order_by(models.Transaction.id.desc()).limit(200).all()
+    txs = query.order_by(models.Transaction.id.desc()).limit(limit).all()
+    # ... el resto de tu función queda exactamente igual ...
     resultado = []
 
     for tx in txs:

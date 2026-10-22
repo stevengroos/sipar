@@ -2,7 +2,8 @@ import { useState, useEffect, useMemo } from 'react';
 import { 
   Receipt, Search, Clock, Zap, AlertTriangle, CheckCircle2, 
   X, Loader2, Wallet, Leaf, Gauge, BatteryCharging, ChevronRight, 
-  ChevronLeft, ChevronDown, ChevronUp, QrCode, FileText, LayoutGrid
+  ChevronLeft, ChevronDown, ChevronUp, QrCode, FileText, LayoutGrid,
+  Download, TrendingUp, Landmark, RotateCcw
 } from 'lucide-react';
 import api from '../api/axios';
 
@@ -49,7 +50,7 @@ export default function Historial() {
   const fetchData = async () => {
     try {
       const token = localStorage.getItem('sipar_token');
-      let url = '/api/v1/transactions/?';
+      let url = '/api/v1/transactions/?limit=2000&';
       if (selectedCharger) url += `charger_id=${selectedCharger}&`;
       if (selectedMonth) url += `month=${selectedMonth}&`;
 
@@ -118,13 +119,11 @@ export default function Historial() {
     });
   };
 
-  // Fecha y hora combinada para tarjetas de pago: "29 de Septiembre de 2026 las 08:05 PM"
   const formatPaymentDateTime = (isoStr) => {
     if (!isoStr) return "Pendiente de cierre";
     return `${formatLongDate(isoStr)} las ${formatTimeAMPM(isoStr)}`;
   };
 
-  // Tiempo relativo: "hace 2 horas"
   const formatRelativeTime = (isoStr) => {
     if (!isoStr) return "en progreso";
     const diffMs = Date.now() - new Date(isoStr).getTime();
@@ -136,7 +135,6 @@ export default function Historial() {
     return `hace ${diffDays} ${diffDays === 1 ? 'día' : 'días'}`;
   };
 
-  // Generador de UUID visual determinístico basado en el ID de la recarga
   const formatSessionUuid = (tx) => {
     const hexId = Number(tx?.id || 1).toString(16).padStart(8, '0');
     const chargerHex = Number(tx?.charger_id || 1).toString(16).padStart(4, '0');
@@ -146,6 +144,185 @@ export default function Historial() {
   const formatPaymentUuid = (tx) => {
     const hexId = Number((tx?.id || 1) * 97).toString(16).padStart(8, '0');
     return `${hexId}-736f-4acb-a404-df0a82a5e146`;
+  };
+
+  // Lista filtrada según todos los filtros activos (Cargador, Mes y Búsqueda)
+  const filteredTxs = useMemo(() => {
+    return transactions.filter(tx => 
+      tx.id.toString().includes(searchTerm) ||
+      tx.charger_serial.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      tx.user_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (tx.error_code && tx.error_code.toLowerCase().includes(searchTerm.toLowerCase()))
+    );
+  }, [transactions, searchTerm]);
+
+  // ================= MÉTRICAS DE REPORTE EN TIEMPO REAL SEGÚN FILTROS =================
+  const reportStats = useMemo(() => {
+    let totalKwh = 0;
+    let totalRevenuePyg = 0;
+    let totalAndeCostPyg = 0;
+    let totalDurationSec = 0;
+    let totalCo2Kg = 0;
+    let completedCount = 0;
+    let activeCount = 0;
+    let faultCount = 0;
+    let peakSessions = 0;
+
+    filteredTxs.forEach(tx => {
+      const kwh = Number(tx.kwh_delivered || 0);
+      totalKwh += kwh;
+      totalRevenuePyg += Number(tx.total_amount_pyg || 0);
+      totalAndeCostPyg += Number(tx.ande_energy_cost_pyg || 0);
+      totalDurationSec += Number(tx.duration_seconds || 0);
+      totalCo2Kg += Number(tx.co2_saved_kg || 0) > 0 ? Number(tx.co2_saved_kg) : (kwh * 1.052);
+
+      if (tx.status === 'concluida') completedCount += 1;
+      else activeCount += 1;
+
+      if (tx.error_code && tx.error_code !== 'NoError') faultCount += 1;
+      if (tx.time_band_label && tx.time_band_label.toLowerCase().includes('punta') && !tx.time_band_label.toLowerCase().includes('fuera')) {
+        peakSessions += 1;
+      }
+    });
+
+    const netMarginPyg = totalRevenuePyg - totalAndeCostPyg;
+    const marginPercent = totalRevenuePyg > 0 ? ((netMarginPyg / totalRevenuePyg) * 100) : 0;
+
+    return {
+      totalSessions: filteredTxs.length,
+      completedCount,
+      activeCount,
+      faultCount,
+      peakSessions,
+      totalKwh: Number(totalKwh.toFixed(2)),
+      totalRevenuePyg: Math.round(totalRevenuePyg),
+      totalAndeCostPyg: Math.round(totalAndeCostPyg),
+      netMarginPyg: Math.round(netMarginPyg),
+      marginPercent: Number(marginPercent.toFixed(1)),
+      totalDurationSec,
+      totalCo2Kg: Number(totalCo2Kg.toFixed(2))
+    };
+  }, [filteredTxs]);
+
+  // ================= EXPORTACIÓN A CSV EN BASE A LOS FILTROS APLICADOS =================
+  const exportFilteredToCSV = () => {
+    if (filteredTxs.length === 0) return;
+
+    const headers = [
+      "ID Transaccion",
+      "Estado",
+      "Estacion (Serie)",
+      "Potencia Estacion (kW)",
+      "Conector",
+      "Direccion",
+      "Usuario",
+      "Email Usuario",
+      "Metodo Desbloqueo",
+      "Fecha/Hora Inicio",
+      "Fecha/Hora Fin",
+      "Duracion Total (HH:MM:SS)",
+      "Tiempo Inactividad (HH:MM:SS)",
+      "Energia Entregada (kWh)",
+      "Potencia Media (kW)",
+      "Potencia Maxima (kW)",
+      "CO2 Evitado (kg)",
+      "Tarifa Venta (Gs/kWh)",
+      "Tarifa Desbloqueo (Gs)",
+      "Total Cobrado Cliente (Gs)",
+      "Franja Horaria ANDE",
+      "Tarifa ANDE Aplicada (Gs/kWh)",
+      "Costo Energia ANDE (Gs)",
+      "Margen Neto SIPAR (Gs)",
+      "Codigo Error OCPP",
+      "Motivo Cierre"
+    ];
+
+    const escapeCsv = (val) => {
+      if (val === null || val === undefined) return '""';
+      const str = String(val).replace(/"/g, '""');
+      return `"${str}"`;
+    };
+
+    const rows = filteredTxs.map(tx => {
+      const revenue = Number(tx.total_amount_pyg || 0);
+      const andeCost = Number(tx.ande_energy_cost_pyg || 0);
+      const net = revenue - andeCost;
+      const co2 = Number(tx.co2_saved_kg || 0) > 0 ? Number(tx.co2_saved_kg) : Number((Number(tx.kwh_delivered || 0) * 1.052).toFixed(2));
+
+      return [
+        tx.id,
+        tx.status,
+        tx.charger_serial,
+        tx.charger_power_kw,
+        `#${tx.connector_id}`,
+        tx.charger_address,
+        tx.user_name,
+        tx.user_email,
+        tx.unlock_method,
+        tx.start_time ? new Date(tx.start_time).toLocaleString('es-PY') : 'N/A',
+        tx.end_time ? new Date(tx.end_time).toLocaleString('es-PY') : 'En curso',
+        formatSeconds(tx.duration_seconds),
+        formatSeconds(tx.idle_seconds),
+        Number(tx.kwh_delivered || 0).toFixed(2),
+        Number(tx.avg_power_kw || 0).toFixed(3),
+        Number(tx.max_power_kw || 0).toFixed(3),
+        co2.toFixed(2),
+        Math.round(Number(tx.tariff_price_kwh || 0)),
+        Math.round(Number(tx.unlock_fee_pyg || 0)),
+        Math.round(revenue),
+        tx.time_band_label,
+        Math.round(Number(tx.ande_applied_rate || 0)),
+        Math.round(andeCost),
+        Math.round(net),
+        tx.error_code || 'NoError',
+        tx.stop_reason || 'Local'
+      ].map(escapeCsv).join(',');
+    });
+
+    // Fila resumen de totales al final del CSV
+    const summaryRow = [
+      "TOTALES DEL REPORTE",
+      `${reportStats.totalSessions} sesiones`,
+      selectedCharger ? (chargers.find(c => String(c.id) === String(selectedCharger))?.serial_number || 'Filtrado') : 'Todas las estaciones',
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      selectedMonth || "Todos los periodos",
+      "",
+      formatSeconds(reportStats.totalDurationSec),
+      "",
+      reportStats.totalKwh.toFixed(2),
+      "",
+      "",
+      reportStats.totalCo2Kg.toFixed(2),
+      "",
+      "",
+      reportStats.totalRevenuePyg,
+      "",
+      "",
+      reportStats.totalAndeCostPyg,
+      reportStats.netMarginPyg,
+      `${reportStats.faultCount} con alerta`,
+      ""
+    ].map(escapeCsv).join(',');
+
+    const csvContent = "\uFEFF" + [headers.map(escapeCsv).join(','), ...rows, summaryRow].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+
+    const chargerObj = chargers.find(c => String(c.id) === String(selectedCharger));
+    const chargerTag = chargerObj ? chargerObj.serial_number : 'Todos';
+    const monthTag = selectedMonth || 'Historico';
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `Reporte_Historial_ANDE_${chargerTag}_${monthTag}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   // Normalización de puntos para el Gráfico SVG (nunca se sale del contenedor)
@@ -201,15 +378,6 @@ export default function Historial() {
     return { points: pts, maxKwh: computedMaxKwh, maxKw: computedMaxKw };
   }, [selectedTx]);
 
-  const filteredTxs = useMemo(() => {
-    return transactions.filter(tx => 
-      tx.id.toString().includes(searchTerm) ||
-      tx.charger_serial.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      tx.user_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (tx.error_code && tx.error_code.toLowerCase().includes(searchTerm.toLowerCase()))
-    );
-  }, [transactions, searchTerm]);
-
   // Cálculos de Paginación
   const totalPages = Math.max(1, Math.ceil(filteredTxs.length / pageSize));
   const safeCurrentPage = Math.min(currentPage, totalPages);
@@ -248,23 +416,27 @@ export default function Historial() {
             : 0))
     : 0;
 
+  const hasActiveFilters = Boolean(selectedCharger || selectedMonth || searchTerm);
+
   return (
     <div className="block animate-[fadeIn_0.2s_ease-out] relative">
       
       {/* CABECERA Y FILTROS */}
-      <div className="flex justify-between items-center mb-6">
+      <div className="flex flex-wrap justify-between items-center gap-4 mb-6">
         <div>
           <h2 className="text-xl font-bold text-sipar-dark dark:text-white flex items-center gap-2">
             <Receipt className="w-6 h-6 text-sipar-orange" /> Historial de Recargas & Liquidación ANDE
           </h2>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Monitorea sesiones de carga, franjas horarias, costos de energía y diagnósticos de parada.</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+            Reportes ejecutivos, liquidación de energía ANDE y auditoría de sesiones en tiempo real.
+          </p>
         </div>
         
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <select 
             value={selectedCharger} 
             onChange={(e) => setSelectedCharger(e.target.value)}
-            className="bg-white dark:bg-sipar-dark border border-gray-200 dark:border-gray-700 text-sipar-dark dark:text-white text-xs font-bold px-3 py-2.5 rounded-xl outline-none shadow-sm"
+            className="bg-white dark:bg-sipar-dark border border-gray-200 dark:border-gray-700 text-sipar-dark dark:text-white text-xs font-bold px-3.5 py-2.5 rounded-xl outline-none shadow-sm cursor-pointer"
           >
             <option value="">Todos los Cargadores</option>
             {chargers.map(ch => (
@@ -276,17 +448,116 @@ export default function Historial() {
             type="month" 
             value={selectedMonth} 
             onChange={(e) => setSelectedMonth(e.target.value)}
-            className="bg-white dark:bg-sipar-dark border border-gray-200 dark:border-gray-700 text-sipar-dark dark:text-white text-xs font-bold px-3 py-2.5 rounded-xl outline-none shadow-sm"
+            className="bg-white dark:bg-sipar-dark border border-gray-200 dark:border-gray-700 text-sipar-dark dark:text-white text-xs font-bold px-3.5 py-2.5 rounded-xl outline-none shadow-sm"
           />
+
+          {hasActiveFilters && (
+            <button
+              onClick={() => { setSelectedCharger(''); setSelectedMonth(''); setSearchTerm(''); }}
+              className="bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300 text-xs font-bold px-3 py-2.5 rounded-xl flex items-center gap-1.5 transition"
+              title="Limpiar todos los filtros"
+            >
+              <RotateCcw className="w-3.5 h-3.5" /> Limpiar
+            </button>
+          )}
+
+          <button
+            onClick={exportFilteredToCSV}
+            disabled={filteredTxs.length === 0}
+            className="bg-sipar-orange hover:bg-orange-600 disabled:opacity-50 text-white text-xs font-bold px-4 py-2.5 rounded-xl flex items-center gap-2 shadow-sm transition"
+          >
+            <Download className="w-4 h-4" /> Exportar CSV ({filteredTxs.length})
+          </button>
         </div>
+      </div>
+
+      {/* ================= TARJETAS DE REPORTE DINÁMICO (SEGÚN FILTROS APLICADOS) ================= */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-7">
+        
+        {/* KPI 1: Energía & Sesiones */}
+        <div className="bg-white dark:bg-sipar-dark rounded-[20px] p-5 shadow-[0_2px_15px_rgba(0,0,0,0.03)] border border-gray-100 dark:border-gray-800 flex items-center justify-between transition-colors">
+          <div>
+            <p className="text-[12px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Energía Entregada</p>
+            <p className="text-[24px] font-extrabold text-sipar-dark dark:text-white tracking-tight mt-1">
+              {reportStats.totalKwh.toLocaleString('es-PY', { minimumFractionDigits: 2 })} kWh
+            </p>
+            <p className="text-[11px] text-gray-500 dark:text-gray-400 font-semibold mt-2 flex items-center gap-2">
+              <span className="text-sipar-orange font-bold">{reportStats.totalSessions} sesiones</span>
+              <span>•</span>
+              <span>⏱ {formatSeconds(reportStats.totalDurationSec)}</span>
+            </p>
+          </div>
+          <div className="w-12 h-12 bg-orange-50 dark:bg-orange-900/20 rounded-xl flex justify-center items-center text-sipar-orange border border-orange-100 dark:border-orange-800/40 shrink-0">
+            <Zap className="w-6 h-6" />
+          </div>
+        </div>
+
+        {/* KPI 2: Ingresos Totales Cobrados */}
+        <div className="bg-white dark:bg-sipar-dark rounded-[20px] p-5 shadow-[0_2px_15px_rgba(0,0,0,0.03)] border border-gray-100 dark:border-gray-800 flex items-center justify-between transition-colors">
+          <div>
+            <p className="text-[12px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Ingresos por Recargas</p>
+            <p className="text-[24px] font-extrabold text-green-600 dark:text-green-400 tracking-tight mt-1">
+              {reportStats.totalRevenuePyg.toLocaleString('es-PY')} ₲
+            </p>
+            <p className="text-[11px] text-gray-500 dark:text-gray-400 font-semibold mt-2">
+              {reportStats.completedCount} concluidas {reportStats.activeCount > 0 ? `• ${reportStats.activeCount} en curso` : ''}
+            </p>
+          </div>
+          <div className="w-12 h-12 bg-green-50 dark:bg-green-900/20 rounded-xl flex justify-center items-center text-green-500 border border-green-100 dark:border-green-800/40 shrink-0">
+            <Wallet className="w-6 h-6" />
+          </div>
+        </div>
+
+        {/* KPI 3: Costo de Energía ANDE (Liquidación Propietario) */}
+        <div className="bg-white dark:bg-sipar-dark rounded-[20px] p-5 shadow-[0_2px_15px_rgba(0,0,0,0.03)] border border-blue-100 dark:border-blue-900/40 flex items-center justify-between transition-colors">
+          <div>
+            <p className="text-[12px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wide">Costo Energía (ANDE)</p>
+            <p className="text-[24px] font-extrabold text-sipar-dark dark:text-white tracking-tight mt-1">
+              {reportStats.totalAndeCostPyg.toLocaleString('es-PY')} ₲
+            </p>
+            <p className="text-[11px] text-gray-500 dark:text-gray-400 font-semibold mt-2">
+              Reembolso propietario ({reportStats.peakSessions} en Punta)
+            </p>
+          </div>
+          <div className="w-12 h-12 bg-blue-50 dark:bg-blue-900/20 rounded-xl flex justify-center items-center text-blue-500 border border-blue-100 dark:border-blue-800/40 shrink-0">
+            <Landmark className="w-6 h-6" />
+          </div>
+        </div>
+
+        {/* KPI 4: Margen Neto SIPAR & CO2 */}
+        <div className="bg-white dark:bg-sipar-dark rounded-[20px] p-5 shadow-[0_2px_15px_rgba(0,0,0,0.03)] border border-gray-100 dark:border-gray-800 flex items-center justify-between transition-colors">
+          <div>
+            <p className="text-[12px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Margen Neto SIPAR</p>
+            <p className="text-[24px] font-extrabold text-sipar-dark dark:text-white tracking-tight mt-1">
+              {reportStats.netMarginPyg.toLocaleString('es-PY')} ₲
+            </p>
+            <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-bold mt-2 flex items-center gap-2">
+              <span>Rentabilidad: {reportStats.marginPercent}%</span>
+              <span>•</span>
+              <span className="flex items-center gap-0.5"><Leaf className="w-3 h-3" /> {reportStats.totalCo2Kg} kg CO₂</span>
+            </p>
+          </div>
+          <div className="w-12 h-12 bg-emerald-50 dark:bg-emerald-900/20 rounded-xl flex justify-center items-center text-emerald-500 border border-emerald-100 dark:border-emerald-800/40 shrink-0">
+            <TrendingUp className="w-6 h-6" />
+          </div>
+        </div>
+
       </div>
 
       {/* TABLA PRINCIPAL */}
       <div className="bg-white dark:bg-sipar-dark rounded-[20px] shadow-[0_2px_15px_rgba(0,0,0,0.03)] border border-gray-100 dark:border-gray-800 overflow-hidden flex flex-col transition-colors">
-        <div className="bg-sipar-dark px-6 py-5 border-b border-gray-800 flex justify-between items-center">
-          <h2 className="text-lg font-bold text-white flex items-center gap-2">
-            <Zap className="w-5 h-5 text-sipar-orange" /> Sesiones Registradas ({filteredTxs.length})
-          </h2>
+        <div className="bg-sipar-dark px-6 py-5 border-b border-gray-800 flex flex-wrap justify-between items-center gap-4">
+          <div className="flex items-center gap-3">
+            <h2 className="text-lg font-bold text-white flex items-center gap-2">
+              <Zap className="w-5 h-5 text-sipar-orange" /> Sesiones Registradas ({filteredTxs.length})
+            </h2>
+            {reportStats.faultCount > 0 && (
+              <span className="bg-red-500/20 text-red-400 border border-red-500/30 text-[11px] font-bold px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                <AlertTriangle className="w-3.5 h-3.5" /> {reportStats.faultCount} con alerta OCPP
+              </span>
+            )}
+          </div>
+
           <div className="flex items-center gap-3">
             {/* Selector de cantidad de registros (20, 50, 100) */}
             <div className="flex items-center gap-2 bg-gray-800 rounded-lg px-3 py-2 border border-gray-700">

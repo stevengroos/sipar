@@ -1,8 +1,9 @@
 import { useState, useEffect, useMemo } from 'react';
 import { 
-  Zap, Plus, MapPin, Loader2, Activity, X, AlertCircle, 
+  Zap, Plus, MapPin, Loader2, X, AlertCircle, 
   BatteryCharging, RotateCw, Unlock, Power, Eye, Search, PlusCircle,
-  Play, Square, Map, Info, CheckCircle, Edit, Trash2, AlertTriangle
+  Play, Square, Map, Info, CheckCircle, Edit, Trash2, AlertTriangle,
+  ChevronLeft, ChevronRight, Clock, Download, FileSpreadsheet
 } from 'lucide-react';
 import { GoogleMap, useJsApiLoader, MarkerF } from '@react-google-maps/api';
 import api from '../api/axios';
@@ -37,6 +38,10 @@ export default function Chargers() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   
+  // Paginación de la tabla de Cargadores (20 por defecto, seleccionable 20, 50, 100)
+  const [chargerPage, setChargerPage] = useState(1);
+  const [chargerPageSize, setChargerPageSize] = useState(20);
+
   const { isLoaded: isMapLoaded } = useJsApiLoader({
     id: 'google-map-script',
     googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_API_KEY
@@ -55,8 +60,17 @@ export default function Chargers() {
   const [isCommandSending, setIsCommandSending] = useState('');
   
   const [notification, setNotification] = useState({ show: false, type: '', message: '' });
-  
   const [activeConnector, setActiveConnector] = useState(1);
+
+  // ================= ESTADOS DEL MODAL DE HISTORIAL POR CARGADOR =================
+  const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
+  const [historyCharger, setHistoryCharger] = useState(null);
+  const [chargerTransactions, setChargerTransactions] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyMonth, setHistoryMonth] = useState('');
+  const [historySearch, setHistorySearch] = useState('');
+  const [historyPage, setHistoryPage] = useState(1);
+  const [historyPageSize, setHistoryPageSize] = useState(20);
   
   const [formData, setFormData] = useState({
     id: null, serial_number: '', power_kw: '', address: '', lat: '', lng: '',
@@ -91,6 +105,56 @@ export default function Chargers() {
       if (updatedCharger) setSelectedCharger(updatedCharger);
     }
   }, [chargers]);
+
+  // Reiniciar paginación de cargadores al buscar o cambiar cantidad por página
+  useEffect(() => {
+    setChargerPage(1);
+  }, [searchTerm, chargerPageSize]);
+
+  // Cargar historial cuando se abre el modal de un cargador o se cambia el filtro de mes
+  const fetchChargerHistory = async (chargerId, monthFilter = '') => {
+    if (!chargerId) return;
+    setHistoryLoading(true);
+    try {
+      const token = localStorage.getItem('sipar_token');
+      let url = `/api/v1/transactions/?charger_id=${chargerId}&limit=2000`;
+      if (monthFilter) url += `&month=${monthFilter}`;
+      const res = await api.get(url, { headers: { Authorization: `Bearer ${token}` } });
+      setChargerTransactions(res.data);
+    } catch (err) {
+      console.error("Error cargando historial del cargador:", err);
+      showNotification('error', 'No se pudo cargar el historial del cargador.');
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isHistoryModalOpen && historyCharger) {
+      fetchChargerHistory(historyCharger.id, historyMonth);
+    }
+  }, [isHistoryModalOpen, historyCharger, historyMonth]);
+
+  useEffect(() => {
+    setHistoryPage(1);
+  }, [historySearch, historyMonth, historyPageSize]);
+
+  const openChargerHistoryModal = (charger) => {
+    setHistoryCharger(charger);
+    setHistoryMonth('');
+    setHistorySearch('');
+    setHistoryPage(1);
+    setIsHistoryModalOpen(true);
+  };
+
+  const formatSeconds = (sec) => {
+    if (!sec || isNaN(sec) || sec < 0) return "00:00:00";
+    const total = Math.floor(sec);
+    const hrs = Math.floor(total / 3600).toString().padStart(2, '0');
+    const mins = Math.floor((total % 3600) / 60).toString().padStart(2, '0');
+    const secs = (total % 60).toString().padStart(2, '0');
+    return `${hrs}:${mins}:${secs}`;
+  };
 
   const showNotification = (type, message) => {
     setNotification({ show: true, type, message });
@@ -233,6 +297,7 @@ export default function Chargers() {
     }
   };
 
+  // Filtrado y Paginación de Cargadores
   const filteredChargers = useMemo(() => {
     if (!searchTerm) return chargers;
     const lowerTerm = searchTerm.toLowerCase();
@@ -242,6 +307,160 @@ export default function Chargers() {
       (c.location && typeof c.location === 'string' && c.location.toLowerCase().includes(lowerTerm))
     );
   }, [chargers, searchTerm]);
+
+  const totalChargerPages = Math.max(1, Math.ceil(filteredChargers.length / chargerPageSize));
+  const safeChargerPage = Math.min(chargerPage, totalChargerPages);
+  const chargerStartIndex = (safeChargerPage - 1) * chargerPageSize;
+  const chargerEndIndex = chargerStartIndex + chargerPageSize;
+  const paginatedChargers = filteredChargers.slice(chargerStartIndex, chargerEndIndex);
+
+  // Filtrado, Métricas y Paginación del Historial del Cargador Seleccionado
+  const filteredHistoryTxs = useMemo(() => {
+    if (!historySearch) return chargerTransactions;
+    const lower = historySearch.toLowerCase();
+    return chargerTransactions.filter(tx =>
+      tx.id.toString().includes(lower) ||
+      tx.user_name.toLowerCase().includes(lower) ||
+      (tx.error_code && tx.error_code.toLowerCase().includes(lower))
+    );
+  }, [chargerTransactions, historySearch]);
+
+  const historySummary = useMemo(() => {
+    let kwh = 0;
+    let revenue = 0;
+    let andeCost = 0;
+    let durationSec = 0;
+
+    filteredHistoryTxs.forEach(tx => {
+      kwh += Number(tx.kwh_delivered || 0);
+      revenue += Number(tx.total_amount_pyg || 0);
+      andeCost += Number(tx.ande_energy_cost_pyg || 0);
+      durationSec += Number(tx.duration_seconds || 0);
+    });
+
+    return {
+      count: filteredHistoryTxs.length,
+      kwh: Number(kwh.toFixed(2)),
+      revenue: Math.round(revenue),
+      andeCost: Math.round(andeCost),
+      netMargin: Math.round(revenue - andeCost),
+      durationSec
+    };
+  }, [filteredHistoryTxs]);
+
+  const totalHistoryPages = Math.max(1, Math.ceil(filteredHistoryTxs.length / historyPageSize));
+  const safeHistoryPage = Math.min(historyPage, totalHistoryPages);
+  const historyStartIndex = (safeHistoryPage - 1) * historyPageSize;
+  const historyEndIndex = historyStartIndex + historyPageSize;
+  const paginatedHistoryTxs = filteredHistoryTxs.slice(historyStartIndex, historyEndIndex);
+
+  // Exportar CSV de todas las cargas filtradas de este cargador
+  const exportChargerHistoryToCSV = () => {
+    if (!historyCharger || filteredHistoryTxs.length === 0) return;
+
+    const headers = [
+      "ID Transaccion",
+      "Estado",
+      "Estacion (Serie)",
+      "Potencia (kW)",
+      "Conector",
+      "Usuario",
+      "Email Usuario",
+      "Metodo Desbloqueo",
+      "Fecha/Hora Inicio",
+      "Fecha/Hora Fin",
+      "Duracion (HH:MM:SS)",
+      "Inactividad (HH:MM:SS)",
+      "Energia (kWh)",
+      "Potencia Media (kW)",
+      "Potencia Maxima (kW)",
+      "CO2 Evitado (kg)",
+      "Tarifa Venta (Gs/kWh)",
+      "Total Cobrado Cliente (Gs)",
+      "Franja Horaria ANDE",
+      "Tarifa ANDE Aplicada (Gs/kWh)",
+      "Costo Energia ANDE (Gs)",
+      "Margen Neto SIPAR (Gs)",
+      "Codigo Error OCPP",
+      "Motivo Cierre"
+    ];
+
+    const escapeCsv = (val) => {
+      if (val === null || val === undefined) return '""';
+      const str = String(val).replace(/"/g, '""');
+      return `"${str}"`;
+    };
+
+    const rows = filteredHistoryTxs.map(tx => {
+      const rev = Number(tx.total_amount_pyg || 0);
+      const ande = Number(tx.ande_energy_cost_pyg || 0);
+      const co2 = Number(tx.co2_saved_kg || 0) > 0 ? Number(tx.co2_saved_kg) : Number((Number(tx.kwh_delivered || 0) * 1.052).toFixed(2));
+      return [
+        tx.id,
+        tx.status,
+        tx.charger_serial,
+        tx.charger_power_kw,
+        `#${tx.connector_id}`,
+        tx.user_name,
+        tx.user_email,
+        tx.unlock_method,
+        tx.start_time ? new Date(tx.start_time).toLocaleString('es-PY') : 'N/A',
+        tx.end_time ? new Date(tx.end_time).toLocaleString('es-PY') : 'En curso',
+        formatSeconds(tx.duration_seconds),
+        formatSeconds(tx.idle_seconds),
+        Number(tx.kwh_delivered || 0).toFixed(2),
+        Number(tx.avg_power_kw || 0).toFixed(3),
+        Number(tx.max_power_kw || 0).toFixed(3),
+        co2.toFixed(2),
+        Math.round(Number(tx.tariff_price_kwh || 0)),
+        Math.round(rev),
+        tx.time_band_label,
+        Math.round(Number(tx.ande_applied_rate || 0)),
+        Math.round(ande),
+        Math.round(rev - ande),
+        tx.error_code || 'NoError',
+        tx.stop_reason || 'Local'
+      ].map(escapeCsv).join(',');
+    });
+
+    const summaryRow = [
+      "TOTALES ESTACION",
+      `${historySummary.count} sesiones`,
+      historyCharger.serial_number,
+      historyCharger.power_kw,
+      "",
+      "",
+      "",
+      "",
+      historyMonth || "Historico Completo",
+      "",
+      formatSeconds(historySummary.durationSec),
+      "",
+      historySummary.kwh.toFixed(2),
+      "",
+      "",
+      "",
+      "",
+      historySummary.revenue,
+      "",
+      "",
+      historySummary.andeCost,
+      historySummary.netMargin,
+      "",
+      ""
+    ].map(escapeCsv).join(',');
+
+    const csvContent = "\uFEFF" + [headers.map(escapeCsv).join(','), ...rows, summaryRow].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `Historial_${historyCharger.serial_number}_${historyMonth || 'Completo'}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
 
   if (loading) {
     return (
@@ -286,7 +505,7 @@ export default function Chargers() {
           <h2 className="text-xl font-bold text-sipar-dark dark:text-white flex items-center gap-2">
             <Zap className="w-6 h-6 text-sipar-orange" /> Red de Cargadores
           </h2>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Gestiona la infraestructura de carga y su estado operativo.</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Gestiona la infraestructura de carga, estado operativo e historial individual por estación.</p>
         </div>
         <button 
           onClick={() => { 
@@ -305,11 +524,25 @@ export default function Chargers() {
 
       {/* TABLA PRINCIPAL */}
       <div className="bg-white dark:bg-sipar-dark rounded-[20px] shadow-[0_2px_15px_rgba(0,0,0,0.03)] border border-gray-100 dark:border-gray-800 overflow-hidden flex flex-col transition-colors">
-        <div className="bg-sipar-dark px-6 py-5 border-b border-gray-800 flex justify-between items-center">
+        <div className="bg-sipar-dark px-6 py-5 border-b border-gray-800 flex flex-wrap justify-between items-center gap-4">
           <h2 className="text-lg font-bold text-white flex items-center gap-2">
-            <Zap className="w-5 h-5 text-sipar-orange" /> Inventario de Estaciones
+            <Zap className="w-5 h-5 text-sipar-orange" /> Inventario de Estaciones ({filteredChargers.length})
           </h2>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
+            {/* Selector de paginado (20, 50, 100) */}
+            <div className="flex items-center gap-2 bg-gray-800 rounded-lg px-3 py-2 border border-gray-700">
+              <span className="text-xs text-gray-400 font-medium">Mostrar:</span>
+              <select
+                value={chargerPageSize}
+                onChange={(e) => setChargerPageSize(Number(e.target.value))}
+                className="bg-transparent text-xs font-bold text-white outline-none cursor-pointer"
+              >
+                <option value={20} className="bg-gray-900 text-white">20</option>
+                <option value={50} className="bg-gray-900 text-white">50</option>
+                <option value={100} className="bg-gray-900 text-white">100</option>
+              </select>
+            </div>
+
             <div className="bg-gray-800 rounded-lg px-3 py-2 flex items-center gap-2 border border-gray-700">
               <Search className="w-4 h-4 text-gray-400" />
               <input 
@@ -323,7 +556,7 @@ export default function Chargers() {
           </div>
         </div>
 
-        <div className="p-0 overflow-hidden">
+        <div className="p-0 overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-gray-50 dark:bg-gray-900/50 border-b border-gray-100 dark:border-gray-800 text-[11px] uppercase tracking-wider text-gray-500 dark:text-gray-400 font-bold">
@@ -335,8 +568,8 @@ export default function Chargers() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50 dark:divide-gray-800 text-sm">
-              {filteredChargers.length > 0 ? (
-                filteredChargers.map((charger) => {
+              {paginatedChargers.length > 0 ? (
+                paginatedChargers.map((charger) => {
                   let displayAddress = 'Sin dirección';
                   if (charger.location) {
                     if (typeof charger.location === 'string') {
@@ -388,7 +621,15 @@ export default function Chargers() {
                         </div>
                       </td>
                       <td className="p-4 text-right pr-6 flex justify-end gap-2">
-                        <button onClick={() => openDetails(charger)} className="p-1.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 hover:text-sipar-dark dark:hover:text-white shadow-sm transition" title="Ver Diagnóstico">
+                        {/* NUEVO BOTÓN: HISTORIAL DE CARGAS Y EXPORTACIÓN CSV DE ESTE CARGADOR */}
+                        <button 
+                          onClick={() => openChargerHistoryModal(charger)} 
+                          className="px-2.5 py-1.5 bg-orange-50 dark:bg-orange-950/30 border border-orange-200 dark:border-orange-800/60 text-sipar-orange rounded-lg hover:bg-sipar-orange hover:text-white shadow-sm transition flex items-center gap-1.5 text-xs font-bold" 
+                          title="Ver Historial de Cargas y Exportar CSV"
+                        >
+                          <Clock className="w-3.5 h-3.5" /> Historial
+                        </button>
+                        <button onClick={() => openDetails(charger)} className="p-1.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 hover:text-sipar-dark dark:hover:text-white shadow-sm transition" title="Ver Diagnóstico OCPP">
                           <Eye className="w-4 h-4" />
                         </button>
                         <button onClick={() => handleEditClick(charger)} className="p-1.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-300 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/30 hover:text-blue-600 dark:hover:text-blue-400 shadow-sm transition" title="Editar Equipo">
@@ -409,7 +650,304 @@ export default function Chargers() {
             </tbody>
           </table>
         </div>
+
+        {/* PIE DE TABLA: CONTROLES DE PAGINACIÓN DE CARGADORES */}
+        {filteredChargers.length > 0 && (
+          <div className="px-6 py-4 bg-gray-50/60 dark:bg-gray-900/40 border-t border-gray-100 dark:border-gray-800 flex flex-wrap items-center justify-between gap-4 text-xs">
+            <div className="flex items-center gap-3 text-gray-500 dark:text-gray-400">
+              <span>
+                Mostrando <strong className="text-sipar-dark dark:text-white">{chargerStartIndex + 1}</strong> a{' '}
+                <strong className="text-sipar-dark dark:text-white">{Math.min(chargerEndIndex, filteredChargers.length)}</strong> de{' '}
+                <strong className="text-sipar-dark dark:text-white">{filteredChargers.length}</strong> cargadores
+              </span>
+              <span className="text-gray-300 dark:text-gray-700">|</span>
+              <div className="flex items-center gap-1.5">
+                <span>Filas por página:</span>
+                <select
+                  value={chargerPageSize}
+                  onChange={(e) => setChargerPageSize(Number(e.target.value))}
+                  className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-sipar-dark dark:text-white font-bold rounded-lg px-2 py-1 outline-none cursor-pointer"
+                >
+                  <option value={20}>20</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => setChargerPage(prev => Math.max(1, prev - 1))}
+                disabled={safeChargerPage === 1}
+                className="px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sipar-dark dark:text-gray-200 font-bold hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-40 disabled:pointer-events-none flex items-center gap-1 transition"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" /> Anterior
+              </button>
+
+              {Array.from({ length: totalChargerPages }, (_, i) => i + 1)
+                .filter(page => page === 1 || page === totalChargerPages || Math.abs(page - safeChargerPage) <= 1)
+                .reduce((acc, page, idx, arr) => {
+                  if (idx > 0 && page - arr[idx - 1] > 1) acc.push('...');
+                  acc.push(page);
+                  return acc;
+                }, [])
+                .map((item, idx) =>
+                  item === '...' ? (
+                    <span key={`dots-${idx}`} className="px-2 text-gray-400">...</span>
+                  ) : (
+                    <button
+                      key={item}
+                      onClick={() => setChargerPage(item)}
+                      className={`w-8 h-8 rounded-lg font-bold transition ${
+                        safeChargerPage === item
+                          ? 'bg-sipar-orange text-white shadow-sm'
+                          : 'bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+                      }`}
+                    >
+                      {item}
+                    </button>
+                  )
+                )}
+
+              <button
+                onClick={() => setChargerPage(prev => Math.min(totalChargerPages, prev + 1))}
+                disabled={safeChargerPage === totalChargerPages}
+                className="px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sipar-dark dark:text-gray-200 font-bold hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-40 disabled:pointer-events-none flex items-center gap-1 transition"
+              >
+                Siguiente <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
+
+      {/* ================= MODAL: HISTORIAL DE CARGAS Y EXPORTACIÓN CSV POR CARGADOR ================= */}
+      {isHistoryModalOpen && historyCharger && (
+        <div className="fixed inset-0 z-[160] flex items-center justify-center bg-black/65 backdrop-blur-sm p-4 animate-[fadeIn_0.15s_ease-out]">
+          <div className="bg-white dark:bg-sipar-dark rounded-[22px] w-full max-w-5xl shadow-2xl flex flex-col overflow-hidden border border-gray-200 dark:border-gray-800 animate-[slideUp_0.2s_ease-out] max-h-[92vh]">
+            
+            {/* Cabecera del Modal de Historial del Cargador */}
+            <div className="px-6 py-5 border-b border-gray-800 flex flex-wrap justify-between items-center gap-4 bg-sipar-dark text-white shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="bg-gray-800 p-2.5 rounded-xl border border-gray-700">
+                  <FileSpreadsheet className="w-5 h-5 text-sipar-orange" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold flex items-center gap-2">
+                    Historial de Recargas — {historyCharger.serial_number}
+                    <span className="text-xs bg-gray-800 text-sipar-orange px-2.5 py-0.5 rounded-full font-mono">
+                      {historyCharger.power_kw} kW
+                    </span>
+                  </h2>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    Auditoría individual de sesiones, consumo y liquidación ANDE de esta estación.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <input
+                  type="month"
+                  value={historyMonth}
+                  onChange={(e) => setHistoryMonth(e.target.value)}
+                  className="bg-gray-800 border border-gray-700 text-white text-xs font-bold px-3 py-2 rounded-xl outline-none"
+                />
+                <button
+                  onClick={exportChargerHistoryToCSV}
+                  disabled={filteredHistoryTxs.length === 0}
+                  className="bg-sipar-orange hover:bg-orange-600 disabled:opacity-40 text-white text-xs font-bold px-4 py-2 rounded-xl flex items-center gap-2 shadow-sm transition"
+                >
+                  <Download className="w-4 h-4" /> Exportar CSV ({filteredHistoryTxs.length})
+                </button>
+                <button
+                  onClick={() => setIsHistoryModalOpen(false)}
+                  className="text-gray-400 hover:text-white transition bg-gray-800 p-2 rounded-full border border-gray-700"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Contenido del Modal */}
+            <div className="p-6 overflow-y-auto hide-scroll space-y-5 bg-gray-50/50 dark:bg-[#0F131A]">
+              
+              {/* Tarjetas de Resumen Rápido del Cargador */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="bg-white dark:bg-sipar-dark p-4 rounded-xl border border-gray-200 dark:border-gray-800">
+                  <p className="text-[10px] font-bold text-gray-400 uppercase">Sesiones & Tiempo</p>
+                  <p className="text-lg font-extrabold text-sipar-dark dark:text-white mt-1">{historySummary.count} cargas</p>
+                  <p className="text-[11px] text-gray-400 mt-0.5">⏱ {formatSeconds(historySummary.durationSec)}</p>
+                </div>
+                <div className="bg-white dark:bg-sipar-dark p-4 rounded-xl border border-gray-200 dark:border-gray-800">
+                  <p className="text-[10px] font-bold text-gray-400 uppercase">Energía Suministrada</p>
+                  <p className="text-lg font-extrabold text-sipar-orange mt-1">{historySummary.kwh.toLocaleString('es-PY', { minimumFractionDigits: 2 })} kWh</p>
+                  <p className="text-[11px] text-gray-400 mt-0.5">Tensión: {(historyCharger.ande_tension_type || 'baja').toUpperCase()}</p>
+                </div>
+                <div className="bg-white dark:bg-sipar-dark p-4 rounded-xl border border-blue-200 dark:border-blue-900/50">
+                  <p className="text-[10px] font-bold text-blue-500 uppercase">Costo Energía ANDE</p>
+                  <p className="text-lg font-extrabold text-blue-600 dark:text-blue-400 mt-1">{historySummary.andeCost.toLocaleString('es-PY')} ₲</p>
+                  <p className="text-[11px] text-gray-400 mt-0.5">A liquidar al propietario</p>
+                </div>
+                <div className="bg-white dark:bg-sipar-dark p-4 rounded-xl border border-gray-200 dark:border-gray-800">
+                  <p className="text-[10px] font-bold text-gray-400 uppercase">Total Cobrado (Bruto)</p>
+                  <p className="text-lg font-extrabold text-green-600 dark:text-green-400 mt-1">{historySummary.revenue.toLocaleString('es-PY')} ₲</p>
+                  <p className="text-[11px] text-emerald-500 font-bold mt-0.5">Margen: {historySummary.netMargin.toLocaleString('es-PY')} ₲</p>
+                </div>
+              </div>
+
+              {/* Barra de Búsqueda y Selector de Paginación del Modal */}
+              <div className="bg-white dark:bg-sipar-dark rounded-2xl border border-gray-200 dark:border-gray-800 overflow-hidden shadow-sm">
+                <div className="px-5 py-3.5 border-b border-gray-100 dark:border-gray-800 flex flex-wrap justify-between items-center gap-3">
+                  <div className="flex items-center gap-2 bg-gray-100 dark:bg-gray-800 rounded-lg px-3 py-1.5 border border-gray-200 dark:border-gray-700">
+                    <Search className="w-4 h-4 text-gray-400" />
+                    <input
+                      type="text"
+                      placeholder="Buscar por ID, usuario o código de error..."
+                      value={historySearch}
+                      onChange={(e) => setHistorySearch(e.target.value)}
+                      className="bg-transparent border-none text-xs text-sipar-dark dark:text-white focus:outline-none w-56"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+                    <span>Mostrar:</span>
+                    <select
+                      value={historyPageSize}
+                      onChange={(e) => setHistoryPageSize(Number(e.target.value))}
+                      className="bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-sipar-dark dark:text-white font-bold rounded-lg px-2.5 py-1 outline-none cursor-pointer"
+                    >
+                      <option value={20}>20</option>
+                      <option value={50}>50</option>
+                      <option value={100}>100</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Tabla Paginada de Recargas del Cargador */}
+                {historyLoading ? (
+                  <div className="p-12 flex justify-center items-center">
+                    <Loader2 className="w-8 h-8 text-sipar-orange animate-spin" />
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse text-xs">
+                      <thead>
+                        <tr className="bg-gray-50 dark:bg-gray-900/50 border-b border-gray-100 dark:border-gray-800 text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400 font-bold">
+                          <th className="p-3.5 pl-5">ID & Estado</th>
+                          <th className="p-3.5">Inicio / Conclusión</th>
+                          <th className="p-3.5">Usuario</th>
+                          <th className="p-3.5">Energía & Duración</th>
+                          <th className="p-3.5">Costo ANDE</th>
+                          <th className="p-3.5">Total Cobrado</th>
+                          <th className="p-3.5 pr-5">Diagnóstico OCPP</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                        {paginatedHistoryTxs.length > 0 ? (
+                          paginatedHistoryTxs.map((tx) => {
+                            const hasErr = tx.error_code && tx.error_code !== 'NoError';
+                            return (
+                              <tr key={tx.id} className="hover:bg-gray-50/60 dark:hover:bg-gray-800/40 transition">
+                                <td className="p-3.5 pl-5">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="font-bold text-sipar-dark dark:text-white">#{tx.id}</span>
+                                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                      tx.status === 'concluida'
+                                        ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'
+                                        : 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400'
+                                    }`}>
+                                      {tx.status === 'concluida' ? 'Concluida' : 'En Curso'}
+                                    </span>
+                                  </div>
+                                  <p className="text-[10px] text-gray-400 mt-0.5">Conector #{tx.connector_id}</p>
+                                </td>
+                                <td className="p-3.5">
+                                  <p className="font-semibold text-sipar-dark dark:text-gray-200">
+                                    {tx.start_time ? new Date(tx.start_time).toLocaleString('es-PY', { dateStyle: 'short', timeStyle: 'short' }) : 'N/A'}
+                                  </p>
+                                  <p className="text-[10px] text-gray-400">
+                                    Fin: {tx.end_time ? new Date(tx.end_time).toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' }) : 'En curso'}
+                                  </p>
+                                </td>
+                                <td className="p-3.5">
+                                  <p className="font-bold text-gray-700 dark:text-gray-300">{tx.user_name}</p>
+                                  <p className="text-[10px] text-gray-400">{tx.unlock_method}</p>
+                                </td>
+                                <td className="p-3.5">
+                                  <p className="font-bold text-sipar-orange">{tx.kwh_delivered} kWh</p>
+                                  <p className="text-[10px] text-gray-400">⏱ {formatSeconds(tx.duration_seconds)}</p>
+                                </td>
+                                <td className="p-3.5">
+                                  <p className="font-bold text-blue-600 dark:text-blue-400">{tx.ande_energy_cost_pyg.toLocaleString('es-PY')} ₲</p>
+                                  <span className="text-[9px] bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded font-bold">
+                                    {tx.time_band_label}
+                                  </span>
+                                </td>
+                                <td className="p-3.5 font-bold text-green-600 dark:text-green-400">
+                                  {tx.total_amount_pyg.toLocaleString('es-PY')} ₲
+                                </td>
+                                <td className="p-3.5 pr-5">
+                                  {hasErr ? (
+                                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 inline-flex items-center gap-1">
+                                      <AlertTriangle className="w-3 h-3" /> {tx.error_code}
+                                    </span>
+                                  ) : (
+                                    <span className="text-[11px] text-green-600 dark:text-green-400 font-semibold">
+                                      NoError ({tx.stop_reason || 'Local'})
+                                    </span>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })
+                        ) : (
+                          <tr>
+                            <td colSpan="7" className="p-8 text-center text-gray-400">
+                              No hay recargas registradas para este cargador con los filtros actuales.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {/* Controles de Paginación del Modal de Historial */}
+                {filteredHistoryTxs.length > 0 && (
+                  <div className="px-5 py-3.5 bg-gray-50/70 dark:bg-gray-900/40 border-t border-gray-100 dark:border-gray-800 flex flex-wrap items-center justify-between gap-4 text-xs">
+                    <span className="text-gray-500 dark:text-gray-400">
+                      Mostrando <strong className="text-sipar-dark dark:text-white">{historyStartIndex + 1}</strong> a{' '}
+                      <strong className="text-sipar-dark dark:text-white">{Math.min(historyEndIndex, filteredHistoryTxs.length)}</strong> de{' '}
+                      <strong className="text-sipar-dark dark:text-white">{filteredHistoryTxs.length}</strong> recargas
+                    </span>
+
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => setHistoryPage(prev => Math.max(1, prev - 1))}
+                        disabled={safeHistoryPage === 1}
+                        className="px-2.5 py-1 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sipar-dark dark:text-gray-200 font-bold disabled:opacity-40 flex items-center gap-1"
+                      >
+                        <ChevronLeft className="w-3.5 h-3.5" /> Anterior
+                      </button>
+                      <span className="px-2.5 font-bold text-sipar-dark dark:text-white">
+                        Página {safeHistoryPage} de {totalHistoryPages}
+                      </span>
+                      <button
+                        onClick={() => setHistoryPage(prev => Math.min(totalHistoryPages, prev + 1))}
+                        disabled={safeHistoryPage === totalHistoryPages}
+                        className="px-2.5 py-1 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sipar-dark dark:text-gray-200 font-bold disabled:opacity-40 flex items-center gap-1"
+                      >
+                        Siguiente <ChevronRight className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* MODAL: CONFIRMAR ELIMINACIÓN */}
       {isDeleteModalOpen && (
@@ -562,7 +1100,13 @@ Ubicación GPS
                   <p className="text-xs text-gray-400 font-mono">ID: {selectedCharger.serial_number}</p>
                 </div>
               </div>
-              <div className="flex items-center gap-4">
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => { setIsDetailsOpen(false); openChargerHistoryModal(selectedCharger); }}
+                  className="px-3 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-xs font-bold text-sipar-orange border border-gray-700 flex items-center gap-1.5 transition"
+                >
+                  <Clock className="w-3.5 h-3.5" /> Ver Historial & CSV
+                </button>
                 <span className={`px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 border ${
                   selectedCharger.status === 'disponible' ? 'bg-green-500/20 text-green-400 border-green-500/30' :
                   selectedCharger.status === 'conectado' ? 'bg-amber-500/20 text-amber-400 border-amber-500/30' :
