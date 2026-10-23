@@ -155,6 +155,12 @@ class Tariff(Base):
 
     chargers = relationship("Charger", back_populates="tariff")
     
+class StoreCategory(Base):
+    __tablename__ = "store_categories"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(80), unique=True, index=True, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
 class Product(Base):
     __tablename__ = "products"
     id = Column(Integer, primary_key=True, index=True)

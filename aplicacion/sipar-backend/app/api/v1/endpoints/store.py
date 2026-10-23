@@ -73,7 +73,6 @@ def upload_image_to_supabase(image: UploadFile, sku: str) -> str:
             file_options={"content-type": image.content_type or "image/jpeg"}
         )
     except Exception:
-        # Si el bucket no existía aún, intentamos crearlo automáticamente y reintentar
         try:
             supabase_client.storage.create_bucket(BUCKET_NAME, options={"public": True})
             supabase_client.storage.from_(BUCKET_NAME).upload(
@@ -88,6 +87,17 @@ def upload_image_to_supabase(image: UploadFile, sku: str) -> str:
 
 
 # --- ESQUEMAS PYDANTIC ---
+class CategoryCreateInput(BaseModel):
+    name: str
+
+class CategoryResponse(BaseModel):
+    id: int
+    name: str
+    product_count: int = 0
+
+    class Config:
+        from_attributes = True
+
 class ProductResponse(BaseModel):
     id: int
     name: str
@@ -131,14 +141,92 @@ class StockHistoryResponse(BaseModel):
 
 
 # =========================================================================
-# 1. CATÁLOGO PARA LA APP MÓVIL (CONDUCTORES) Y PANEL ADMIN
+# 1. GESTIÓN DINÁMICA DE CATEGORÍAS DE LA TIENDA
+# =========================================================================
+@router.get("/categories", response_model=List[CategoryResponse])
+def get_store_categories(db: Session = Depends(get_db)):
+    """Obtiene todas las categorías registradas junto con la cantidad de productos activos en cada una."""
+    categories = db.query(models.StoreCategory).order_by(models.StoreCategory.name.asc()).all()
+    active_products = db.query(models.Product).filter(models.Product.is_active == True).all()
+
+    counts = {}
+    for p in active_products:
+        cat_name = p.category or "Sin Categoría"
+        counts[cat_name] = counts.get(cat_name, 0) + 1
+
+    return [
+        CategoryResponse(
+            id=cat.id,
+            name=cat.name,
+            product_count=counts.get(cat.name, 0)
+        )
+        for cat in categories
+    ]
+
+@router.post("/categories", response_model=CategoryResponse)
+def create_store_category(
+    cat_in: CategoryCreateInput,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(deps.RoleChecker(["superadmin", "admin", "Super Admin"]))
+):
+    """Crea una nueva categoría para los productos de la tienda y App Móvil."""
+    clean_name = cat_in.name.strip()
+    if not clean_name:
+        raise HTTPException(status_code=400, detail="El nombre de la categoría no puede estar vacío.")
+
+    exists = db.query(models.StoreCategory).filter(models.StoreCategory.name.ilike(clean_name)).first()
+    if exists:
+        raise HTTPException(status_code=400, detail=f"La categoría '{clean_name}' ya existe.")
+
+    new_cat = models.StoreCategory(name=clean_name)
+    db.add(new_cat)
+    db.commit()
+    db.refresh(new_cat)
+
+    log_store_event(
+        db, current_user, "STORE_CATEGORY_CREATED", clean_name, get_client_ip(request),
+        f"Nueva categoría creada en tienda: '{clean_name}'"
+    )
+    return CategoryResponse(id=new_cat.id, name=new_cat.name, product_count=0)
+
+@router.delete("/categories/{category_id}")
+def delete_store_category(
+    category_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(deps.RoleChecker(["superadmin", "admin", "Super Admin"]))
+):
+    """Elimina una categoría y reasigna sus productos a 'Sin Categoría' para no perder productos."""
+    cat = db.query(models.StoreCategory).filter(models.StoreCategory.id == category_id).first()
+    if not cat:
+        raise HTTPException(status_code=404, detail="Categoría no encontrada.")
+
+    cat_name = cat.name
+    # Reasignar productos que tenían esta categoría
+    affected_products = db.query(models.Product).filter(models.Product.category == cat_name).all()
+    for p in affected_products:
+        p.category = "Sin Categoría"
+
+    db.delete(cat)
+    db.commit()
+
+    log_store_event(
+        db, current_user, "STORE_CATEGORY_DELETED", cat_name, get_client_ip(request),
+        f"Categoría '{cat_name}' eliminada ({len(affected_products)} productos reasignados a 'Sin Categoría')",
+        "WARNING"
+    )
+    return {"detail": f"Categoría '{cat_name}' eliminada correctamente."}
+
+
+# =========================================================================
+# 2. CATÁLOGO PARA LA APP MÓVIL (CONDUCTORES) Y PANEL ADMIN
 # =========================================================================
 @router.get("/products", response_model=List[ProductResponse])
 def get_products(
-    only_app_visible: bool = Query(False, description="Si es True, devuelve solo los visibles en la App Móvil"),
+    only_app_visible: bool = Query(False),
     db: Session = Depends(get_db)
 ):
-    """Obtiene todos los productos activos del inventario."""
     query = db.query(models.Product).filter(models.Product.is_active == True)
     if only_app_visible:
         query = query.filter(models.Product.show_in_app == True)
@@ -146,10 +234,6 @@ def get_products(
 
 @router.get("/app-catalog", response_model=List[ProductResponse])
 def get_mobile_app_catalog(db: Session = Depends(get_db)):
-    """
-    Endpoint público/móvil listo para consumir desde la App de SIPAR:
-    Devuelve únicamente los productos activos y habilitados para mostrarse en la App.
-    """
     return (
         db.query(models.Product)
         .filter(models.Product.is_active == True, models.Product.show_in_app == True)
@@ -159,7 +243,7 @@ def get_mobile_app_catalog(db: Session = Depends(get_db)):
 
 
 # =========================================================================
-# 2. CREAR PRODUCTO (CON STOCK INICIAL E IMAGEN HÍBRIDA)
+# 3. CREAR PRODUCTO (CON STOCK INICIAL E IMAGEN HÍBRIDA)
 # =========================================================================
 @router.post("/products", response_model=ProductResponse)
 def create_product(
@@ -167,7 +251,7 @@ def create_product(
     name: str = Form(...),
     sku: str = Form(...),
     price: float = Form(...),
-    category: str = Form("Accesorios EV"),
+    category: str = Form("Sin Categoría"),
     description: str = Form(""),
     initial_stock: int = Form(0),
     show_in_app: bool = Form(True),
@@ -176,15 +260,21 @@ def create_product(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(deps.RoleChecker(["superadmin", "admin", "Super Admin"]))
 ):
-    """Crea un nuevo producto para la tienda y registra su stock inicial si es mayor a 0."""
     clean_sku = sku.strip().upper()
     existing = db.query(models.Product).filter(models.Product.sku.ilike(clean_sku)).first()
     if existing:
         if existing.is_active:
             raise HTTPException(status_code=400, detail=f"El código SKU '{clean_sku}' ya está registrado en otro producto.")
         else:
-            # Si estaba borrado lógicamente, liberamos el SKU renombrando el histórico
             existing.sku = f"{existing.sku}_OLD_{int(time.time())}"
+            db.commit()
+
+    clean_cat = category.strip() or "Sin Categoría"
+    # Si el usuario escribió una categoría que no estaba en la tabla, la registramos automáticamente
+    if clean_cat != "Sin Categoría":
+        cat_exists = db.query(models.StoreCategory).filter(models.StoreCategory.name.ilike(clean_cat)).first()
+        if not cat_exists:
+            db.add(models.StoreCategory(name=clean_cat))
             db.commit()
 
     final_image_url = image_url_input.strip() if image_url_input and image_url_input.strip() else None
@@ -194,7 +284,7 @@ def create_product(
     new_product = models.Product(
         name=name.strip(),
         sku=clean_sku,
-        category=category.strip() or "Accesorios EV",
+        category=clean_cat,
         description=description.strip(),
         price=price,
         stock=max(0, int(initial_stock or 0)),
@@ -206,7 +296,6 @@ def create_product(
     db.commit()
     db.refresh(new_product)
 
-    # Si se creó con stock inicial > 0, dejamos trazabilidad en el historial de stock
     if new_product.stock > 0:
         history = models.StockHistory(
             product_id=new_product.id,
@@ -220,13 +309,13 @@ def create_product(
 
     log_store_event(
         db, current_user, "STORE_PRODUCT_CREATED", f"{new_product.name} ({new_product.sku})", get_client_ip(request),
-        f"Producto creado | Precio: {int(price):,} ₲ | Stock inicial: {new_product.stock} | App: {'Visible' if show_in_app else 'Oculto'}".replace(",", ".")
+        f"Producto creado | Categoría: {clean_cat} | Precio: {int(price):,} ₲ | Stock inicial: {new_product.stock}".replace(",", ".")
     )
     return new_product
 
 
 # =========================================================================
-# 3. EDITAR PRODUCTO Y ATRIBUTOS DE LA APP MÓVIL
+# 4. EDITAR PRODUCTO
 # =========================================================================
 @router.put("/products/{product_id}", response_model=ProductResponse)
 def update_product(
@@ -235,7 +324,7 @@ def update_product(
     name: str = Form(...),
     sku: str = Form(...),
     price: float = Form(...),
-    category: str = Form("Accesorios EV"),
+    category: str = Form("Sin Categoría"),
     description: str = Form(""),
     show_in_app: bool = Form(True),
     image_url_input: Optional[str] = Form(None),
@@ -243,7 +332,6 @@ def update_product(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(deps.RoleChecker(["superadmin", "admin", "Super Admin"]))
 ):
-    """Actualiza datos comerciales, precio, visibilidad en App e imagen de un producto."""
     product = db.query(models.Product).filter(models.Product.id == product_id, models.Product.is_active == True).first()
     if not product:
         raise HTTPException(status_code=404, detail="Producto no encontrado.")
@@ -253,9 +341,10 @@ def update_product(
         if db.query(models.Product).filter(models.Product.sku.ilike(clean_sku), models.Product.id != product_id).first():
             raise HTTPException(status_code=400, detail=f"El SKU '{clean_sku}' ya está en uso por otro producto.")
 
+    clean_cat = category.strip() or "Sin Categoría"
     product.name = name.strip()
     product.sku = clean_sku
-    product.category = category.strip() or "Accesorios EV"
+    product.category = clean_cat
     product.description = description.strip()
     product.price = price
     product.show_in_app = bool(show_in_app)
@@ -270,13 +359,13 @@ def update_product(
 
     log_store_event(
         db, current_user, "STORE_PRODUCT_UPDATED", f"{product.name} ({product.sku})", get_client_ip(request),
-        f"Producto actualizado | Precio: {int(price):,} ₲ | App: {'Visible' if product.show_in_app else 'Oculto'}".replace(",", ".")
+        f"Producto actualizado | Categoría: {clean_cat} | Precio: {int(price):,} ₲".replace(",", ".")
     )
     return product
 
 
 # =========================================================================
-# 4. INTERRUPTOR RÁPIDO DE VISIBILIDAD EN LA APP MÓVIL
+# 5. INTERRUPTOR RÁPIDO DE VISIBILIDAD EN LA APP MÓVIL
 # =========================================================================
 @router.patch("/products/{product_id}/toggle-app", response_model=ProductResponse)
 def toggle_product_app_visibility(
@@ -285,7 +374,6 @@ def toggle_product_app_visibility(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(deps.RoleChecker(["superadmin", "admin", "Super Admin"]))
 ):
-    """Activa o desactiva al instante la visibilidad de un producto en la App Móvil."""
     product = db.query(models.Product).filter(models.Product.id == product_id, models.Product.is_active == True).first()
     if not product:
         raise HTTPException(status_code=404, detail="Producto no encontrado.")
@@ -302,7 +390,7 @@ def toggle_product_app_visibility(
 
 
 # =========================================================================
-# 5. ELIMINAR PRODUCTO (BORRADO LÓGICO)
+# 6. ELIMINAR PRODUCTO (BORRADO LÓGICO)
 # =========================================================================
 @router.delete("/products/{product_id}")
 def delete_product(
@@ -311,7 +399,6 @@ def delete_product(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(deps.RoleChecker(["superadmin", "admin", "Super Admin"]))
 ):
-    """Borrado lógico de un producto y retiro inmediato del catálogo de la App."""
     product = db.query(models.Product).filter(models.Product.id == product_id).first()
     if not product:
         raise HTTPException(status_code=404, detail="Producto no encontrado.")
@@ -328,7 +415,7 @@ def delete_product(
 
 
 # =========================================================================
-# 6. GESTIÓN DE STOCK Y MOVIMIENTOS AUDITADOS
+# 7. GESTIÓN DE STOCK Y MOVIMIENTOS AUDITADOS
 # =========================================================================
 @router.post("/stock")
 def adjust_stock(

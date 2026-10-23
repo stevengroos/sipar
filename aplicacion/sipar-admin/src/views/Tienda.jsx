@@ -8,17 +8,9 @@ import {
 } from 'lucide-react';
 import api from '../api/axios';
 
-const PRODUCT_CATEGORIES = [
-  "Cargadores Portátiles",
-  "Cables & Adaptadores",
-  "Tarjetas RFID & Tags",
-  "Repuestos & Conectores",
-  "Merchandising SIPAR",
-  "Accesorios EV"
-];
-
 export default function Tienda() {
   const [products, setProducts] = useState([]);
+  const [categories, setCategories] = useState([]);
   const [stockHistory, setStockHistory] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -41,11 +33,13 @@ export default function Tienda() {
 
   // Modales
   const [isProductModalOpen, setIsProductModalOpen] = useState(false);
+  const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
   const [isStockModalOpen, setIsStockModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [isAppPreviewOpen, setIsAppPreviewOpen] = useState(false);
   const [previewCategory, setPreviewCategory] = useState('Todas');
   
+  const [newCategoryName, setNewCategoryName] = useState('');
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [notification, setNotification] = useState({ show: false, type: '', message: '' });
 
@@ -54,7 +48,7 @@ export default function Tienda() {
     id: null,
     name: '',
     sku: '',
-    category: 'Cables & Adaptadores',
+    category: '',
     description: '',
     price: '',
     initial_stock: '0',
@@ -84,12 +78,14 @@ export default function Tienda() {
   const fetchData = async () => {
     try {
       const token = localStorage.getItem('sipar_token');
-      const [prodRes, histRes] = await Promise.all([
+      const [prodRes, catRes, histRes] = await Promise.all([
         api.get('/api/v1/store/products', { headers: { Authorization: `Bearer ${token}` } }),
+        api.get('/api/v1/store/categories', { headers: { Authorization: `Bearer ${token}` } }),
         api.get('/api/v1/store/stock/history?limit=1000', { headers: { Authorization: `Bearer ${token}` } })
       ]);
       
       setProducts(prodRes.data);
+      setCategories(catRes.data);
       setStockHistory(histRes.data);
     } catch (error) {
       console.error("Error cargando datos de tienda:", error);
@@ -118,6 +114,61 @@ export default function Tienda() {
 
   const formatPYG = (val) => `${Math.round(Number(val || 0)).toLocaleString('es-PY')} ₲`;
 
+  // Lista combinada de nombres de categorías disponibles
+  const categoryNames = useMemo(() => {
+    const names = categories.map(c => c.name);
+    products.forEach(p => {
+      if (p.category && !names.includes(p.category)) {
+        names.push(p.category);
+      }
+    });
+    return names.length > 0 ? names : ['Sin Categoría'];
+  }, [categories, products]);
+
+  // Crear nueva categoría
+  const handleCreateCategory = async (e) => {
+    e.preventDefault();
+    if (!newCategoryName.trim()) return;
+    setIsSubmitting(true);
+    try {
+      const token = localStorage.getItem('sipar_token');
+      const res = await api.post('/api/v1/store/categories', {
+        name: newCategoryName.trim()
+      }, { headers: { Authorization: `Bearer ${token}` } });
+
+      setNewCategoryName('');
+      showNotification('success', `Categoría "${res.data.name}" agregada.`);
+      await fetchData();
+      // Si el modal de producto está abierto, seleccionamos automáticamente la nueva categoría creada
+      if (isProductModalOpen) {
+        setProductForm(prev => ({ ...prev, category: res.data.name }));
+      }
+    } catch (err) {
+      showNotification('error', err.response?.data?.detail || 'No se pudo crear la categoría.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Eliminar categoría
+  const handleDeleteCategory = async (cat) => {
+    setIsSubmitting(true);
+    try {
+      const token = localStorage.getItem('sipar_token');
+      await api.delete(`/api/v1/store/categories/${cat.id}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (categoryFilter === cat.name) setCategoryFilter('all');
+      if (previewCategory === cat.name) setPreviewCategory('Todas');
+      showNotification('success', `Categoría "${cat.name}" eliminada.`);
+      fetchData();
+    } catch (err) {
+      showNotification('error', err.response?.data?.detail || 'Error al eliminar la categoría.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   // Opciones del selector de estado de stock con íconos Lucide React
   const stockFilterOptions = [
     { id: 'all', label: 'Todos los Estados', icon: Filter, color: 'text-gray-400' },
@@ -132,7 +183,7 @@ export default function Tienda() {
   // Filtrado de Productos
   const filteredProducts = useMemo(() => {
     return products.filter(p => {
-      if (categoryFilter !== 'all' && (p.category || 'Accesorios EV') !== categoryFilter) return false;
+      if (categoryFilter !== 'all' && (p.category || 'Sin Categoría') !== categoryFilter) return false;
       if (stockFilter === 'app_visible' && !p.show_in_app) return false;
       if (stockFilter === 'in_stock' && p.stock <= 5) return false;
       if (stockFilter === 'low_stock' && (p.stock <= 0 || p.stock > 5)) return false;
@@ -205,7 +256,7 @@ export default function Tienda() {
       id: null,
       name: '',
       sku: '',
-      category: 'Cables & Adaptadores',
+      category: categoryNames[0] || 'Sin Categoría',
       description: '',
       price: '',
       initial_stock: '0',
@@ -222,7 +273,7 @@ export default function Tienda() {
       id: product.id,
       name: product.name,
       sku: product.sku,
-      category: product.category || 'Accesorios EV',
+      category: product.category || categoryNames[0] || 'Sin Categoría',
       description: product.description || '',
       price: product.price,
       initial_stock: String(product.stock || 0),
@@ -254,7 +305,7 @@ export default function Tienda() {
       const formData = new FormData();
       formData.append('name', productForm.name);
       formData.append('sku', productForm.sku);
-      formData.append('category', productForm.category);
+      formData.append('category', productForm.category || 'Sin Categoría');
       formData.append('description', productForm.description);
       formData.append('price', productForm.price);
       formData.append('show_in_app', String(productForm.show_in_app));
@@ -358,7 +409,6 @@ export default function Tienda() {
     }
   };
 
-  // Exportar Catálogo e Inventario a CSV
   const exportCatalogCSV = () => {
     if (filteredProducts.length === 0) return;
     const headers = ["ID", "SKU", "Producto", "Categoria", "Descripcion", "Precio Unitario (Gs)", "Stock Disponible", "Valor Total Stock (Gs)", "Visible en App Movil"];
@@ -368,7 +418,7 @@ export default function Tienda() {
       p.id,
       p.sku,
       p.name,
-      p.category || 'Accesorios EV',
+      p.category || 'Sin Categoría',
       p.description || '',
       Math.round(Number(p.price || 0)),
       p.stock,
@@ -400,7 +450,6 @@ export default function Tienda() {
     URL.revokeObjectURL(url);
   };
 
-  // Exportar Historial de Movimientos de Stock a CSV
   const exportHistoryCSV = () => {
     if (filteredHistory.length === 0) return;
     const headers = ["ID Movimiento", "Fecha y Hora", "Responsable", "SKU", "Producto", "Tipo Movimiento", "Cantidad", "Notas / Justificacion"];
@@ -438,7 +487,7 @@ export default function Tienda() {
   }
 
   const hasActiveFilters = Boolean(searchTerm || categoryFilter !== 'all' || stockFilter !== 'all');
-  const appCatalogProducts = products.filter(p => p.show_in_app !== false && (previewCategory === 'Todas' || (p.category || 'Accesorios EV') === previewCategory));
+  const appCatalogProducts = products.filter(p => p.show_in_app !== false && (previewCategory === 'Todas' || (p.category || 'Sin Categoría') === previewCategory));
 
   return (
     <div className="block animate-[fadeIn_0.2s_ease-out] relative space-y-6">
@@ -468,11 +517,19 @@ export default function Tienda() {
             <ShoppingBag className="w-6 h-6 text-sipar-orange" /> Tienda de Accesorios & Catálogo App Móvil
           </h2>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-            Administra el stock físico, precios y qué productos ven los conductores en la App Móvil de SIPAR.
+            Administra tus categorías personalizadas, stock físico y qué productos ven los conductores en la App Móvil.
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
+          {/* NUEVO BOTÓN: GESTIONAR CATEGORÍAS */}
+          <button
+            onClick={() => setIsCategoryModalOpen(true)}
+            className="bg-white dark:bg-sipar-dark border border-gray-200 dark:border-gray-700 hover:border-sipar-orange text-sipar-dark dark:text-white text-xs font-bold px-4 py-2.5 rounded-xl flex items-center gap-2 shadow-sm transition"
+          >
+            <Layers className="w-4 h-4 text-sipar-orange" /> Categorías ({categories.length})
+          </button>
+
           <button
             onClick={() => setIsAppPreviewOpen(true)}
             className="bg-white dark:bg-sipar-dark border border-gray-200 dark:border-gray-700 hover:border-sipar-orange text-sipar-dark dark:text-white text-xs font-bold px-4 py-2.5 rounded-xl flex items-center gap-2 shadow-sm transition"
@@ -485,7 +542,7 @@ export default function Tienda() {
             disabled={filteredProducts.length === 0}
             className="bg-white dark:bg-sipar-dark border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50 text-sipar-dark dark:text-white text-xs font-bold px-4 py-2.5 rounded-xl flex items-center gap-2 shadow-sm transition"
           >
-            <Download className="w-4 h-4 text-sipar-orange" /> Exportar Inventario CSV
+            <Download className="w-4 h-4 text-sipar-orange" /> Exportar CSV
           </button>
 
           <button
@@ -570,14 +627,14 @@ export default function Tienda() {
           </h2>
 
           <div className="flex flex-wrap items-center gap-3">
-            {/* Filtro por Categoría */}
+            {/* Filtro por Categoría Dinámica */}
             <select
               value={categoryFilter}
               onChange={(e) => setCategoryFilter(e.target.value)}
               className="bg-gray-800 border border-gray-700 text-white text-xs font-bold px-3 py-2 rounded-lg outline-none cursor-pointer"
             >
               <option value="all">Todas las Categorías</option>
-              {PRODUCT_CATEGORIES.map(cat => (
+              {categoryNames.map(cat => (
                 <option key={cat} value={cat}>{cat}</option>
               ))}
             </select>
@@ -696,7 +753,7 @@ export default function Tienda() {
 
                   <td className="px-6 py-4">
                     <span className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700 inline-flex items-center gap-1">
-                      <Tag className="w-3 h-3 text-sipar-orange" /> {product.category || 'Accesorios EV'}
+                      <Tag className="w-3 h-3 text-sipar-orange" /> {product.category || 'Sin Categoría'}
                     </span>
                   </td>
 
@@ -932,6 +989,84 @@ export default function Tienda() {
         )}
       </div>
 
+      {/* ================= MODAL NUEVO: GESTOR DE CATEGORÍAS DINÁMICAS ================= */}
+      {isCategoryModalOpen && (
+        <div className="fixed inset-0 z-[170] flex items-center justify-center bg-black/65 backdrop-blur-sm p-4 animate-[fadeIn_0.15s_ease-out]">
+          <div className="bg-white dark:bg-sipar-dark rounded-[22px] w-full max-w-md shadow-2xl flex flex-col overflow-hidden border border-gray-200 dark:border-gray-800 animate-[slideUp_0.2s_ease-out] max-h-[85vh]">
+            <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center bg-gray-50 dark:bg-gray-800/50 shrink-0">
+              <h3 className="text-base font-bold text-sipar-dark dark:text-white flex items-center gap-2">
+                <Layers className="w-5 h-5 text-sipar-orange" /> Gestionar Categorías de Tienda
+              </h3>
+              <button onClick={() => setIsCategoryModalOpen(false)} className="text-gray-400 hover:text-red-500"><X className="w-5 h-5" /></button>
+            </div>
+
+            <div className="p-6 space-y-5 overflow-y-auto hide-scroll">
+              {/* Formulario para agregar nueva categoría */}
+              <form onSubmit={handleCreateCategory} className="space-y-2">
+                <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase">
+                  Agregar Nueva Categoría
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ej. Wallbox Domiciliarios"
+                    value={newCategoryName}
+                    onChange={(e) => setNewCategoryName(e.target.value)}
+                    className="flex-1 px-3.5 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sipar-dark dark:text-white rounded-xl text-xs font-bold outline-none focus:ring-2 focus:ring-sipar-orange"
+                  />
+                  <button
+                    type="submit"
+                    disabled={isSubmitting || !newCategoryName.trim()}
+                    className="px-4 py-2 bg-sipar-orange hover:bg-orange-600 disabled:opacity-50 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 transition shrink-0"
+                  >
+                    <Plus className="w-4 h-4" /> Agregar
+                  </button>
+                </div>
+              </form>
+
+              {/* Lista de categorías actuales con botón de eliminar */}
+              <div>
+                <p className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase mb-2">
+                  Categorías Activas ({categories.length})
+                </p>
+                <div className="divide-y divide-gray-100 dark:divide-gray-800 border border-gray-200 dark:border-gray-800 rounded-xl overflow-hidden max-h-64 overflow-y-auto hide-scroll">
+                  {categories.length > 0 ? (
+                    categories.map(cat => (
+                      <div key={cat.id} className="px-4 py-3 bg-white dark:bg-gray-900/50 flex items-center justify-between text-xs">
+                        <div className="flex items-center gap-2">
+                          <Tag className="w-3.5 h-3.5 text-sipar-orange" />
+                          <span className="font-bold text-sipar-dark dark:text-white">{cat.name}</span>
+                          <span className="text-[10px] bg-gray-100 dark:bg-gray-800 text-gray-500 px-2 py-0.5 rounded-full font-semibold">
+                            {cat.product_count} prod.
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          disabled={isSubmitting}
+                          onClick={() => handleDeleteCategory(cat)}
+                          className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-lg transition"
+                          title="Eliminar categoría"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="p-4 text-center text-xs text-gray-400">
+                      No hay categorías personalizadas creadas. Agrega la primera arriba.
+                    </p>
+                  )}
+                </div>
+                <p className="text-[10px] text-gray-400 mt-2">
+                  Si eliminas una categoría que tiene productos, estos pasarán a "Sin Categoría" sin borrarse.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ================= MODAL 1: CREAR / EDITAR PRODUCTO ================= */}
       {isProductModalOpen && (
         <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/65 backdrop-blur-sm p-4 animate-[fadeIn_0.2s_ease-out]">
@@ -971,13 +1106,22 @@ export default function Tienda() {
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase mb-1.5">Categoría App</label>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase">Categoría</label>
+                    <button
+                      type="button"
+                      onClick={() => setIsCategoryModalOpen(true)}
+                      className="text-[10px] font-bold text-sipar-orange hover:underline flex items-center gap-0.5"
+                    >
+                      <Plus className="w-3 h-3" /> Editar lista
+                    </button>
+                  </div>
                   <select
                     value={productForm.category}
                     onChange={(e) => setProductForm({...productForm, category: e.target.value})}
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sipar-dark dark:text-white rounded-xl text-xs font-bold outline-none"
                   >
-                    {PRODUCT_CATEGORIES.map(c => (
+                    {categoryNames.map(c => (
                       <option key={c} value={c}>{c}</option>
                     ))}
                   </select>
@@ -1095,7 +1239,6 @@ export default function Tienda() {
         <div className="fixed inset-0 z-[160] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-[fadeIn_0.15s_ease-out]">
           <div className="bg-[#11151E] rounded-[38px] w-full max-w-[390px] h-[740px] max-h-[92vh] shadow-2xl border-[6px] border-gray-800 flex flex-col overflow-hidden relative animate-[slideUp_0.2s_ease-out]">
             
-            {/* Barra superior estilo iPhone */}
             <div className="bg-[#161B26] px-6 pt-4 pb-3 border-b border-gray-800 flex justify-between items-center text-white shrink-0">
               <div>
                 <span className="text-[10px] font-bold text-sipar-orange uppercase tracking-widest flex items-center gap-1">
@@ -1111,9 +1254,9 @@ export default function Tienda() {
               </button>
             </div>
 
-            {/* Píldoras de Categorías dentro de la App */}
+            {/* Píldoras de Categorías Dinámicas dentro de la App */}
             <div className="px-4 py-3 bg-[#161B26]/60 flex gap-2 overflow-x-auto hide-scroll shrink-0 border-b border-gray-800/80">
-              {['Todas', ...PRODUCT_CATEGORIES].map(cat => (
+              {['Todas', ...categoryNames].map(cat => (
                 <button
                   key={cat}
                   onClick={() => setPreviewCategory(cat)}
@@ -1128,7 +1271,6 @@ export default function Tienda() {
               ))}
             </div>
 
-            {/* Grilla de Productos como los ve el cliente en la App */}
             <div className="flex-1 overflow-y-auto p-4 space-y-3 hide-scroll">
               {appCatalogProducts.length > 0 ? (
                 appCatalogProducts.map(prod => (
@@ -1142,7 +1284,7 @@ export default function Tienda() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <span className="text-[9px] font-bold text-sipar-orange uppercase tracking-wider">
-                        {prod.category || 'Accesorios EV'}
+                        {prod.category || 'Sin Categoría'}
                       </span>
                       <h4 className="text-xs font-bold text-white truncate mt-0.5">{prod.name}</h4>
                       {prod.description && (
