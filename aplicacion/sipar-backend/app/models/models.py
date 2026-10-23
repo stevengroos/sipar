@@ -11,6 +11,7 @@ class Company(Base):
     is_active = Column(Boolean, default=True)
 
 class User(Base):
+    __tablename__ = "users"
     id = Column(Integer, primary_key=True, index=True)
     company_id = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=False, index=True)
     email = Column(String(150), unique=True, index=True, nullable=False)
@@ -19,6 +20,16 @@ class User(Base):
     hashed_password = Column(String(255), nullable=False)
     role = Column(String(50), default="operador")
     is_active = Column(Boolean, default=True)
+
+    # --- CAMPOS DE SEGURIDAD ISO 27001 & MFA ---
+    mfa_enabled = Column(Boolean, default=False)
+    mfa_secret = Column(String(64), nullable=True)
+    failed_login_attempts = Column(Integer, default=0)
+    locked_until = Column(DateTime(timezone=True), nullable=True)
+    last_login_at = Column(DateTime(timezone=True), nullable=True)
+    last_login_ip = Column(String(64), nullable=True)
+    password_changed_at = Column(DateTime(timezone=True), server_default=func.now())
+    must_change_password = Column(Boolean, default=False)
     
     company = relationship("Company")
 
@@ -159,3 +170,16 @@ class StockHistory(Base):
 
     product = relationship("Product", back_populates="stock_movements")
     user = relationship("User")
+    
+    
+class SecurityAuditLog(Base):
+    __tablename__ = "security_audit_logs"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    actor_email = Column(String(150), nullable=True)
+    action = Column(String(100), nullable=False)
+    target = Column(String(150), nullable=True)
+    ip_address = Column(String(64), nullable=True)
+    status = Column(String(30), default="SUCCESS") # SUCCESS, WARNING, DANGER
+    details = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())

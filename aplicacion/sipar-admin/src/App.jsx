@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
-import { BrowserRouter, Routes, Route, Navigate, Outlet, Link, useLocation, useNavigate} from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import { 
   HardHat, LayoutDashboard, Zap, Users, Wallet, 
-  SlidersHorizontal, ShoppingBag, Settings, LogOut, Bell, Clock 
+  SlidersHorizontal, ShoppingBag, Settings, LogOut, Bell, Clock, ShieldCheck 
 } from 'lucide-react';
 import api from './api/axios';
 
@@ -15,6 +15,7 @@ import Tarifas from './views/Tarifas';
 import Tienda from './views/Tienda';
 import Configuracion from './views/Configuracion';
 import Historial from './views/Historial';
+import Perfil from './views/Perfil';
 
 // ==========================================
 // COMPONENTE: GUARDIA DE SEGURIDAD (RUTAS PROTEGIDAS)
@@ -34,10 +35,19 @@ function AdminLayout() {
   const location = useLocation();
   const navigate = useNavigate();
   const [sessionMinutes, setSessionMinutes] = useState(30);
+  const [currentUser, setCurrentUser] = useState(() => {
+    try {
+      const saved = localStorage.getItem('sipar_user');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
 
-  // Función para cerrar sesión
+  // Función para cerrar sesión limpiando credenciales
   const handleLogout = useCallback(() => {
     localStorage.removeItem('sipar_token');
+    localStorage.removeItem('sipar_user');
     navigate('/login');
   }, [navigate]);
 
@@ -51,9 +61,8 @@ function AdminLayout() {
     return 30;
   };
 
-  // 1. Cargar configuración global (Modo Oscuro y Tiempo de Sesión) al abrir cualquier vista
+  // 1. Cargar configuración global (Modo Oscuro, Tiempo de Sesión y Perfil Actual)
   const syncSystemConfig = useCallback(async () => {
-    // Aplicamos caché local inmediato para evitar parpadeos
     if (localStorage.getItem('sipar_dark_mode') === 'true') {
       document.documentElement.classList.add('dark');
     }
@@ -61,19 +70,32 @@ function AdminLayout() {
     try {
       const token = localStorage.getItem('sipar_token');
       if (!token) return;
-      const res = await api.get('/api/v1/config/', {
-        headers: { Authorization: `Bearer ${token}` }
-      });
 
-      const isDark = Boolean(res.data.pref_dark_mode);
-      localStorage.setItem('sipar_dark_mode', String(isDark));
-      if (isDark) {
-        document.documentElement.classList.add('dark');
-      } else {
-        document.documentElement.classList.remove('dark');
+      const [configRes, meRes] = await Promise.allSettled([
+        api.get('/api/v1/config/', { headers: { Authorization: `Bearer ${token}` } }),
+        api.get('/api/v1/auth/me', { headers: { Authorization: `Bearer ${token}` } })
+      ]);
+
+      if (configRes.status === 'fulfilled') {
+        const isDark = Boolean(configRes.value.data.pref_dark_mode);
+        localStorage.setItem('sipar_dark_mode', String(isDark));
+        if (isDark) {
+          document.documentElement.classList.add('dark');
+        } else {
+          document.documentElement.classList.remove('dark');
+        }
+        setSessionMinutes(parseSessionMinutes(configRes.value.data.security_session));
+      } else if (configRes.reason?.response?.status === 401) {
+        handleLogout();
+        return;
       }
 
-      setSessionMinutes(parseSessionMinutes(res.data.security_session));
+      if (meRes.status === 'fulfilled') {
+        setCurrentUser(meRes.value.data);
+        localStorage.setItem('sipar_user', JSON.stringify(meRes.value.data));
+      } else if (meRes.reason?.response?.status === 401) {
+        handleLogout();
+      }
     } catch (error) {
       if (error.response?.status === 401) {
         handleLogout();
@@ -83,7 +105,6 @@ function AdminLayout() {
 
   useEffect(() => {
     syncSystemConfig();
-    // Escucha cambios hechos en vivo desde Configuracion.jsx
     const handleConfigEvent = (e) => {
       if (e.detail) {
         setSessionMinutes(parseSessionMinutes(e.detail.security_session));
@@ -93,7 +114,7 @@ function AdminLayout() {
     };
     window.addEventListener('sipar_config_updated', handleConfigEvent);
     return () => window.removeEventListener('sipar_config_updated', handleConfigEvent);
-  }, [syncSystemConfig]);
+  }, [syncSystemConfig, location.pathname]);
 
   // 2. Vigilante de inactividad en tiempo real (ISO 27001)
   useEffect(() => {
@@ -133,6 +154,18 @@ function AdminLayout() {
     );
   };
 
+  // Iniciales y nombre dinámicos para el bloque inferior del Sidebar
+  const displayFullName = currentUser?.first_name
+    ? `${currentUser.first_name} ${currentUser.last_name || ''}`.trim()
+    : 'Steven Groos';
+  const displayInitials = displayFullName
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 2)
+    .map(n => n[0]?.toUpperCase())
+    .join('') || 'SG';
+  const displayRole = currentUser?.role || 'Super Admin';
+
   return (
     <div className="flex h-screen overflow-hidden bg-[#F8F9FA] dark:bg-[#0B0F17] transition-colors">
       {/* SIDEBAR */}
@@ -155,19 +188,37 @@ function AdminLayout() {
           <NavItem to="/admin/parametros" icon={SlidersHorizontal} label="Tarifas & Parámetros" />
           <NavItem to="/admin/tienda" icon={ShoppingBag} label="Tienda Accesorios" />
           <NavItem to="/admin/configuracion" icon={Settings} label="Configuración" />
+          <NavItem to="/admin/perfil" icon={ShieldCheck} label="Mi Perfil & MFA" />
         </nav>
 
         <div className="p-4 border-t border-gray-700/50">
-          <div 
-            onClick={handleLogout}
-            className="flex items-center gap-3 bg-gray-800 p-3 rounded-xl cursor-pointer hover:bg-gray-700 transition"
-          >
-            <div className="w-10 h-10 bg-sipar-orange rounded-full flex justify-center items-center text-white font-bold">SG</div>
-            <div className="flex-1">
-              <p className="text-sm font-bold text-white leading-tight">Steven Groos</p>
-              <p className="text-xs text-gray-400">Super Admin</p>
-            </div>
-            <LogOut className="w-4 h-4 text-gray-400" />
+          <div className="flex items-center gap-3 bg-gray-800 p-3 rounded-xl hover:bg-gray-700/80 transition">
+            <Link
+              to="/admin/perfil"
+              className="flex items-center gap-3 flex-1 min-w-0 cursor-pointer"
+              title="Ir a Mi Perfil & Seguridad MFA"
+            >
+              <div className="w-10 h-10 bg-sipar-orange rounded-full flex justify-center items-center text-white font-bold shrink-0 relative">
+                {displayInitials}
+                {currentUser?.mfa_enabled && (
+                  <span
+                    className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-green-500 border-2 border-gray-800 rounded-full"
+                    title="2FA Activo"
+                  ></span>
+                )}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-bold text-white leading-tight truncate">{displayFullName}</p>
+                <p className="text-xs text-gray-400 capitalize truncate">{displayRole}</p>
+              </div>
+            </Link>
+            <button
+              onClick={handleLogout}
+              className="p-1.5 text-gray-400 hover:text-red-400 rounded-lg hover:bg-gray-700 transition"
+              title="Cerrar Sesión"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
           </div>
         </div>
       </aside>
@@ -183,7 +234,14 @@ function AdminLayout() {
               <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></span> Sistema en línea
             </div>
           </div>
-          <div className="flex items-center gap-6">
+          <div className="flex items-center gap-4">
+            <Link
+              to="/admin/perfil"
+              className="hidden sm:flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:text-sipar-orange border border-gray-200 dark:border-gray-700 transition"
+            >
+              <ShieldCheck className="w-4 h-4 text-sipar-orange" />
+              {currentUser?.mfa_enabled ? '2FA Protegido' : 'Configurar 2FA'}
+            </Link>
             <div className="bg-gray-50 dark:bg-gray-800 rounded-full p-2.5 text-gray-500 dark:text-gray-300 hover:text-sipar-orange cursor-pointer transition relative">
               <Bell className="w-5 h-5" />
               <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-white dark:border-sipar-dark"></span>
@@ -223,6 +281,7 @@ export default function App() {
           <Route path="parametros" element={<Tarifas />} />          
           <Route path="tienda" element={<Tienda />} />
           <Route path="configuracion" element={<Configuracion />} />
+          <Route path="perfil" element={<Perfil />} />
         </Route>
 
         <Route path="*" element={<Navigate to="/login" replace />} />
