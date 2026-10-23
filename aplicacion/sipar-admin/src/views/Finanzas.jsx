@@ -1,10 +1,10 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   Wallet, Landmark, ArrowLeftRight, ArrowUpRight, AlertCircle, 
   Receipt, Search, Download, BatteryCharging, CheckCircle2, 
   ShieldAlert, FileWarning, Ban, CornerDownLeft, X, Loader2, 
   Zap, Clock, ChevronLeft, ChevronRight, RotateCcw, Lock, 
-  MessageSquareWarning, Eye, AlertTriangle, CheckCircle
+  MessageSquareWarning, Eye, AlertTriangle, CheckCircle, Filter, ChevronDown
 } from 'lucide-react';
 import api from '../api/axios';
 
@@ -19,6 +19,8 @@ export default function Finanzas() {
   const [selectedMonth, setSelectedMonth] = useState('');
   const [statusFilter, setStatusFilter] = useState('all'); // 'all' | 'pending' | 'refunded' | 'rejected' | 'fault_alert'
   const [searchTerm, setSearchTerm] = useState('');
+  const [isStatusMenuOpen, setIsStatusMenuOpen] = useState(false);
+  const statusMenuRef = useRef(null);
 
   // Paginación (20 por defecto, seleccionable 20, 50, 100)
   const [currentPage, setCurrentPage] = useState(1);
@@ -45,6 +47,17 @@ export default function Finanzas() {
     setNotification({ show: true, type, message });
     setTimeout(() => setNotification({ show: false, type: '', message: '' }), 4500);
   };
+
+  // Cerrar menú desplegable al hacer clic fuera
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (statusMenuRef.current && !statusMenuRef.current.contains(event.target)) {
+        setIsStatusMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const fetchFinancialData = async () => {
     try {
@@ -92,6 +105,17 @@ export default function Finanzas() {
     return `${num.toLocaleString('es-PY')} ₲`;
   };
 
+  // Definición de opciones para el selector personalizado con Lucide Icons
+  const statusOptions = [
+    { id: 'all', label: 'Todos los Estados', icon: Filter, color: 'text-gray-400' },
+    { id: 'pending', label: 'Con Reclamo / Disputa Pendiente', icon: AlertCircle, color: 'text-red-500' },
+    { id: 'refunded', label: 'Reembolsadas / Revertidas', icon: CornerDownLeft, color: 'text-amber-500' },
+    { id: 'rejected', label: 'Reclamo Rechazado', icon: Ban, color: 'text-gray-400' },
+    { id: 'fault_alert', label: 'Con Falla Técnica OCPP', icon: Zap, color: 'text-sipar-orange' }
+  ];
+
+  const currentStatusOption = statusOptions.find(o => o.id === statusFilter) || statusOptions[0];
+
   // Filtrado combinado
   const filteredTransactions = useMemo(() => {
     return transactions.filter(tx => {
@@ -117,7 +141,7 @@ export default function Finanzas() {
     });
   }, [transactions, statusFilter, searchTerm]);
 
-  // KPIs Financieros Dinámicos (se actualizan según los filtros aplicados)
+  // KPIs Financieros Dinámicos
   const financialMetrics = useMemo(() => {
     let grossBilled = 0;
     let totalRefunded = 0;
@@ -163,7 +187,6 @@ export default function Finanzas() {
   const endIndex = startIndex + pageSize;
   const paginatedTransactions = filteredTransactions.slice(startIndex, endIndex);
 
-  // Abrir modal para registrar nuevo reclamo / solicitud de reversión
   const openCreateDisputeModal = (tx) => {
     setSelectedTx(tx);
     const defaultReason = tx.error_code && tx.error_code !== 'NoError'
@@ -173,7 +196,6 @@ export default function Finanzas() {
     setIsOpenDisputeModalOpen(true);
   };
 
-  // Abrir modal para resolver reclamo / autorizar reversión
   const openResolveModal = (tx) => {
     setSelectedTx(tx);
     setResolutionType('refund_full');
@@ -226,28 +248,14 @@ export default function Finanzas() {
     }
   };
 
-  // Exportar CSV con todos los registros filtrados y fila de totales
   const exportFinancialCSV = () => {
     if (filteredTransactions.length === 0) return;
     const headers = [
-      "ID Transaccion",
-      "Fecha/Hora",
-      "Usuario",
-      "Email",
-      "Estacion",
-      "kWh Entregados",
-      "Duracion (HH:MM:SS)",
-      "Medio de Pago",
-      "Estado Operativo",
-      "Diagnostico OCPP",
-      "Monto Bruto Cobrado (Gs)",
-      "Estado Reclamo / Disputa",
-      "Monto Revertido / Reembolsado (Gs)",
-      "Ingreso Neto Final (Gs)",
-      "Costo Energia ANDE (Gs)",
-      "Margen Neto SIPAR (Gs)",
-      "Motivo Reclamo",
-      "Resolucion Auditoria"
+      "ID Transaccion", "Fecha/Hora", "Usuario", "Email", "Estacion",
+      "kWh Entregados", "Duracion (HH:MM:SS)", "Medio de Pago", "Estado Operativo",
+      "Diagnostico OCPP", "Monto Bruto Cobrado (Gs)", "Estado Reclamo / Disputa",
+      "Monto Revertido / Reembolsado (Gs)", "Ingreso Neto Final (Gs)",
+      "Costo Energia ANDE (Gs)", "Margen Neto SIPAR (Gs)", "Motivo Reclamo", "Resolucion Auditoria"
     ];
 
     const escapeCsv = (val) => `"${String(val ?? '').replace(/"/g, '""')}"`;
@@ -262,44 +270,24 @@ export default function Finanzas() {
       return [
         `#TRX-${tx.id}`,
         tx.start_time ? new Date(tx.start_time).toLocaleString('es-PY') : 'N/A',
-        tx.user_name,
-        tx.user_email,
-        tx.charger_serial,
+        tx.user_name, tx.user_email, tx.charger_serial,
         Number(tx.kwh_delivered || 0).toFixed(2),
         formatSeconds(tx.duration_seconds),
         tx.payment_method || 'Cartera Digital',
-        tx.status,
-        tx.error_code || 'NoError',
-        billed,
-        tx.dispute_status || 'none',
-        refunded,
-        netRev,
-        ande,
-        margin,
+        tx.status, tx.error_code || 'NoError', billed,
+        tx.dispute_status || 'none', refunded, netRev, ande, margin,
         tx.dispute_reason || '',
         tx.dispute_resolution_note ? `${tx.dispute_resolution_note} (${tx.dispute_resolved_by || ''})` : ''
       ].map(escapeCsv).join(',');
     });
 
     const summaryRow = [
-      "TOTALES CONCILIACION",
-      `${filteredTransactions.length} operaciones`,
-      "",
-      "",
+      "TOTALES CONCILIACION", `${filteredTransactions.length} operaciones`, "", "",
       selectedCharger ? (chargers.find(c => String(c.id) === String(selectedCharger))?.serial_number || '') : "Todas las estaciones",
-      financialMetrics.totalKwh.toFixed(2),
-      "",
-      "",
-      "",
-      "",
-      financialMetrics.grossBilled,
-      `${financialMetrics.pendingDisputesCount} pendientes`,
-      financialMetrics.totalRefunded,
-      financialMetrics.netRevenue,
-      financialMetrics.totalAndeCost,
-      financialMetrics.netMargin,
-      "",
-      ""
+      financialMetrics.totalKwh.toFixed(2), "", "", "", "",
+      financialMetrics.grossBilled, `${financialMetrics.pendingDisputesCount} pendientes`,
+      financialMetrics.totalRefunded, financialMetrics.netRevenue,
+      financialMetrics.totalAndeCost, financialMetrics.netMargin, "", ""
     ].map(escapeCsv).join(',');
 
     const csvContent = "\uFEFF" + [headers.map(escapeCsv).join(','), ...rows, summaryRow].join('\n');
@@ -324,10 +312,12 @@ export default function Finanzas() {
 
   const hasActiveFilters = Boolean(selectedCharger || selectedMonth || statusFilter !== 'all' || searchTerm);
 
+  const CurrentStatusIcon = currentStatusOption.icon;
+
   return (
     <div className="block animate-[fadeIn_0.2s_ease-out] relative space-y-6">
       
-      {/* ================= NOTIFICACIÓN TOAST ================= */}
+      {/* NOTIFICACIÓN TOAST */}
       {notification.show && (
         <div className={`fixed top-6 right-6 z-[200] flex items-center gap-3 px-5 py-4 rounded-xl shadow-2xl border ${
           notification.type === 'success' 
@@ -345,7 +335,7 @@ export default function Finanzas() {
         </div>
       )}
 
-      {/* ================= CABECERA Y FILTROS SUPERIORES ================= */}
+      {/* CABECERA Y FILTROS SUPERIORES */}
       <div className="flex flex-wrap justify-between items-center gap-4">
         <div>
           <h2 className="text-xl font-bold text-sipar-dark dark:text-white flex items-center gap-2">
@@ -375,17 +365,46 @@ export default function Finanzas() {
             className="bg-white dark:bg-sipar-dark border border-gray-200 dark:border-gray-700 text-sipar-dark dark:text-white text-xs font-bold px-3.5 py-2.5 rounded-xl outline-none shadow-sm"
           />
 
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="bg-white dark:bg-sipar-dark border border-gray-200 dark:border-gray-700 text-sipar-dark dark:text-white text-xs font-bold px-3.5 py-2.5 rounded-xl outline-none shadow-sm cursor-pointer"
-          >
-            <option value="all">Todos los Estados</option>
-            <option value="pending">⚠️ Con Reclamo / Disputa Pendiente</option>
-            <option value="refunded">↩️ Reembolsadas / Revertidas</option>
-            <option value="rejected">🚫 Reclamo Rechazado</option>
-            <option value="fault_alert">⚡ Con Falla Técnica OCPP</option>
-          </select>
+          {/* ================= SELECTOR PERSONALIZADO CON LUCIDE ICONS ================= */}
+          <div className="relative" ref={statusMenuRef}>
+            <button
+              type="button"
+              onClick={() => setIsStatusMenuOpen(!isStatusMenuOpen)}
+              className="bg-white dark:bg-sipar-dark border border-gray-200 dark:border-gray-700 text-sipar-dark dark:text-white text-xs font-bold px-3.5 py-2.5 rounded-xl outline-none shadow-sm flex items-center gap-2 cursor-pointer hover:border-sipar-orange transition"
+            >
+              <CurrentStatusIcon className={`w-4 h-4 ${currentStatusOption.color}`} />
+              <span>{currentStatusOption.label}</span>
+              <ChevronDown className="w-3.5 h-3.5 text-gray-400 ml-1" />
+            </button>
+
+            {isStatusMenuOpen && (
+              <div className="absolute right-0 mt-2 w-64 bg-white dark:bg-[#161B26] border border-gray-200 dark:border-gray-800 rounded-2xl shadow-2xl py-2 z-50 animate-[slideDown_0.15s_ease-out]">
+                {statusOptions.map(opt => {
+                  const IconComponent = opt.icon;
+                  const isSelected = statusFilter === opt.id;
+                  return (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => {
+                        setStatusFilter(opt.id);
+                        setIsStatusMenuOpen(false);
+                      }}
+                      className={`w-full text-left px-4 py-2.5 text-xs font-bold flex items-center gap-2.5 transition ${
+                        isSelected
+                          ? 'bg-orange-50 dark:bg-orange-950/40 text-sipar-orange'
+                          : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50'
+                      }`}
+                    >
+                      <IconComponent className={`w-4 h-4 shrink-0 ${opt.color}`} />
+                      <span className="flex-1 truncate">{opt.label}</span>
+                      {isSelected && <CheckCircle2 className="w-3.5 h-3.5 text-sipar-orange shrink-0" />}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
 
           {hasActiveFilters && (
             <button
@@ -409,7 +428,6 @@ export default function Finanzas() {
       {/* ================= 4 KPIs FINANCIEROS REALES ================= */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
         
-        {/* KPI 1: Facturación Neta */}
         <div className="bg-white dark:bg-sipar-dark rounded-[20px] p-5 shadow-[0_2px_15px_rgba(0,0,0,0.03)] border border-gray-100 dark:border-gray-800 flex items-center justify-between">
           <div>
             <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wide">Facturación Neta Cobrada</p>
@@ -425,7 +443,6 @@ export default function Finanzas() {
           </div>
         </div>
         
-        {/* KPI 2: Liquidación Costo ANDE */}
         <div className="bg-white dark:bg-sipar-dark rounded-[20px] p-5 shadow-[0_2px_15px_rgba(0,0,0,0.03)] border border-gray-100 dark:border-gray-800 flex items-center justify-between">
           <div>
             <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wide">Costo Energía (ANDE)</p>
@@ -441,7 +458,6 @@ export default function Finanzas() {
           </div>
         </div>
         
-        {/* KPI 3: Margen Neto Operativo */}
         <div className="bg-white dark:bg-sipar-dark rounded-[20px] p-5 shadow-[0_2px_15px_rgba(0,0,0,0.03)] border border-orange-200 dark:border-orange-900/40 flex items-center justify-between">
           <div>
             <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wide">Margen Neto (SIPAR)</p>
@@ -457,7 +473,6 @@ export default function Finanzas() {
           </div>
         </div>
 
-        {/* KPI 4: Reclamos / Reversiones App Móvil */}
         <div className={`bg-white dark:bg-sipar-dark rounded-[20px] p-5 shadow-[0_2px_15px_rgba(0,0,0,0.03)] border flex items-center justify-between ${
           financialMetrics.pendingDisputesCount > 0
             ? 'border-red-300 dark:border-red-800/80'
@@ -494,7 +509,6 @@ export default function Finanzas() {
           </div>
 
           <div className="flex items-center gap-3">
-            {/* Selector de paginado (20, 50, 100) */}
             <div className="flex items-center gap-2 bg-gray-800 rounded-lg px-3 py-2 border border-gray-700">
               <span className="text-xs text-gray-400 font-medium">Mostrar:</span>
               <select
@@ -834,7 +848,6 @@ export default function Finanzas() {
                 </div>
               )}
 
-              {/* Comparativa Auditoría Financiera vs Telemetría OCPP */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="bg-gray-50 dark:bg-gray-900/60 p-4 rounded-xl border border-gray-200 dark:border-gray-800">
                   <h3 className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2.5">Datos del Cobro</h3>
@@ -875,7 +888,6 @@ export default function Finanzas() {
                 </div>
               </div>
 
-              {/* Selección de Tipo de Resolución */}
               <div>
                 <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
                   Decisión Financiera
@@ -956,7 +968,6 @@ export default function Finanzas() {
                 />
               </div>
 
-              {/* Autorización con contraseña real ISO 27001 */}
               <div className="bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-800/40 rounded-xl p-4">
                 <label className="block text-[11px] font-bold text-red-600 dark:text-red-400 uppercase tracking-wide mb-1.5 flex items-center gap-1.5">
                   <Lock className="w-3.5 h-3.5" /> Contraseña de Autorización Administrativa (ISO 27001)
