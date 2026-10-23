@@ -2,6 +2,7 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, HTTPException
 import logging
 import json
+import asyncio
 from datetime import datetime, timezone, timedelta
 import time
 
@@ -19,25 +20,27 @@ logger = logging.getLogger("ocpp")
 router = APIRouter()
 
 conexiones_activas = {}
+# Rastrea qué cargadores recibieron orden de parada manual desde el panel Admin
+paradas_solicitadas_admin = set()
+
 PY_TZ = timezone(timedelta(hours=-3))
 
-# Diccionario de errores estándar OCPP 1.6 + Diagnósticos Eléctricos Inteligentes
 OCPP_ERROR_TRANSLATIONS = {
     "NoError": "Sin errores (Operación Normal)",
     "ConnectorLockFailure": "Fallo en bloqueo electromecánico del conector",
-    "EVCommunicationError": "Mala conexión con el vehículo / Carga abortada (0 Wh)",
-    "GroundFailure": "Fallo de puesta a tierra / Tensión inestable",
-    "HighTemperature": "Alerta de alta temperatura interna",
+    "EVCommunicationError": "Falla de comunicación CP / Corte prematuro con el vehículo",
+    "GroundFailure": "Fallo de puesta a tierra (PE) detectado",
+    "HighTemperature": "Alerta de alta temperatura interna (>75°C)",
     "InternalError": "Error interno del hardware del cargador",
     "LocalListConflict": "Conflicto en lista de autorización local",
     "OtherError": "Error general reportado por el cargador",
     "OverCurrentFailure": "Protección por sobrecorriente activada",
-    "OverVoltage": "Sobretensión en la línea de alimentación (>255V)",
+    "OverVoltage": "Sobretensión en la línea de alimentación (>260V)",
     "PowerMeterFailure": "Fallo de lectura en el medidor de energía",
     "PowerSwitchFailure": "Fallo en el contactor / relé de potencia",
     "ReaderFailure": "Fallo en el lector de tarjetas RFID",
     "ResetFailure": "No se pudo completar el reinicio del equipo",
-    "UnderVoltage": "Fallo de Tierra / Baja Tensión crítica en línea (<185V)",
+    "UnderVoltage": "Baja tensión crítica en red eléctrica",
     "WeakSignal": "Señal de red Wi-Fi / 4G débil"
 }
 
@@ -215,8 +218,6 @@ class ChargePointHandler(cp):
                         )
                         db.add(conector_db)
 
-                # Si hay una transacción en curso y el cargador cae de repente a Preparing/SuspendedEV,
-                # conservamos cualquier error eléctrico detectado previamente en MeterValues
                 active_tx = db.query(models.Transaction).filter(
                     models.Transaction.charger_id == cargador.id,
                     models.Transaction.status == "en_curso"
@@ -225,12 +226,8 @@ class ChargePointHandler(cp):
                 if active_tx and effective_error != "NoError":
                     active_tx.error_code = effective_error
 
-                # Si ya habíamos detectado una falla eléctrica (ej. 130V) durante la sesión activa,
-                # no dejamos que un "NoError" genérico del firmware borre la alerta hasta que vuelva a Available
-                if effective_error == "NoError" and cargador.last_error_code not in [None, "NoError"] and status != "Available":
-                    effective_error = cargador.last_error_code
-                    db_status = "falla"
-
+                # Si el cargador reporta explícitamente Charging o Available o Preparing con NoError,
+                # limpiamos cualquier estado de falla previo para que nunca quede pegado
                 cargador.status = db_status
                 cargador.last_error_code = effective_error
                 if conector_db:
@@ -238,9 +235,7 @@ class ChargePointHandler(cp):
                     conector_db.error_code = effective_error
 
                 if status == "Available":
-                    cargador.last_error_code = "NoError"
-                    if conector_db:
-                        conector_db.error_code = "NoError"
+                    paradas_solicitadas_admin.discard(self.id)
                     stuck_txs = db.query(models.Transaction).filter(
                         models.Transaction.charger_id == cargador.id,
                         models.Transaction.status == "en_curso"
@@ -268,8 +263,6 @@ class ChargePointHandler(cp):
                         stx.time_band_label = band_label
                         stx.status = "concluida"
                         stx.stop_reason = "EVDisconnected"
-                        if kwh == 0 and dur < 60 and (not stx.error_code or stx.error_code == "NoError"):
-                            stx.error_code = "EVCommunicationError"
 
                 db.commit()
         finally:
@@ -281,6 +274,7 @@ class ChargePointHandler(cp):
     async def on_start_transaction(self, connector_id: int, id_tag: str, meter_start: int, timestamp: str, **kwargs):
         logger.info(f"[{self.id}] Inicio de carga en conector {connector_id} | Tag: {id_tag} | Medidor: {meter_start} Wh")
         
+        paradas_solicitadas_admin.discard(self.id)
         start_dt = parse_ocpp_timestamp(timestamp)
         transaction_id = int(time.time())
         
@@ -288,11 +282,12 @@ class ChargePointHandler(cp):
         try:
             cargador = db.query(models.Charger).filter(models.Charger.serial_number == self.id).first()
             if cargador:
-                # Al iniciar pide paso de energía, pero empieza en 'conectado' hasta que MeterValues confirme corriente > 0
                 cargador.status = "en_uso"
+                cargador.last_error_code = "NoError"
                 conector_db = db.query(models.Connector).filter_by(charger_id=cargador.id, connector_id=connector_id).first()
                 if conector_db:
                     conector_db.status = "en_uso"
+                    conector_db.error_code = "NoError"
 
                 price_kwh = 2500.0
                 unlock_fee = 0.0
@@ -325,8 +320,8 @@ class ChargePointHandler(cp):
                     meter_stop=int(meter_start),
                     tariff_price_kwh=price_kwh,
                     unlock_fee_pyg=unlock_fee,
-                    error_code=cargador.last_error_code if cargador.last_error_code not in [None, "NoError"] else "NoError",
-                    telemetry_log=[{"time": hora_local, "kwh": 0.0, "kw": 0.0, "soc": 20}]
+                    error_code="NoError",
+                    telemetry_log=[{"time": hora_local, "kwh": 0.0, "kw": 0.0, "soc": 20, "voltage": 220.0}]
                 )
                 db.add(nueva_tx)
                 db.commit()
@@ -345,16 +340,14 @@ class ChargePointHandler(cp):
     @on('MeterValues')
     async def on_meter_values(self, connector_id: int, meter_value: list, transaction_id: int = None, **kwargs):
         """
-        Analiza en tiempo real:
-        1. Paso real de corriente (A / W) -> diferencia entre 'en_uso' y 'conectado'.
-        2. Anomalías eléctricas (Voltaje < 185V como los 130V de falla de tierra, o > 255V, o Temp > 75°C)
-           para disparar alertas de falla aunque el firmware envíe errorCode='NoError'.
+        Registra telemetría en tiempo real y corrige la escala de voltaje del firmware WGD
+        (que reporta V/2 = ~110V-116V cuando la tensión real en pantalla es 220V-232V).
         """
         db = SessionLocal()
         try:
             cargador = db.query(models.Charger).filter(models.Charger.serial_number == self.id).first()
             tx = None
-            if transaction_id:
+            if transaction_id and int(transaction_id) > 0:
                 tx = db.query(models.Transaction).filter(
                     models.Transaction.id == int(transaction_id),
                     models.Transaction.status == "en_curso"
@@ -368,7 +361,7 @@ class ChargePointHandler(cp):
             current_kwh = float(tx.kwh_delivered or 0.0) if tx else 0.0
             current_kw = 0.0
             current_amps = 0.0
-            current_voltage = 220.0
+            raw_voltage = 220.0
             current_temp = 25.0
             current_soc = 50
 
@@ -393,25 +386,26 @@ class ChargePointHandler(cp):
                     elif "Current.Export" in measurand or "Current.Import" in measurand:
                         current_amps = val
                     elif "Voltage" in measurand:
-                        current_voltage = val
+                        raw_voltage = val
                     elif "Temperature" in measurand:
                         current_temp = val
                     elif "SoC" in measurand:
                         current_soc = int(val)
 
-            # --- DETECTOR INTELIGENTE DE FALLAS ELÉCTRICAS Y DE TIERRA ---
+            # Calibración para firmware WGD (Volvo): el ADC envía V/2 (ej. 112V-116V cuando en pantalla hay 224V-232V)
+            if 90.0 <= raw_voltage <= 145.0:
+                calibrated_voltage = round(raw_voltage * 2.0, 1)
+            else:
+                calibrated_voltage = round(raw_voltage, 1)
+
+            # Solo disparamos alerta por MeterValues si hay sobretemperatura real (>75°C) o caída extrema (<80V reales)
             detected_fault = None
-            if 10.0 < current_voltage < 185.0:
-                detected_fault = f"GroundFailure (Tensión anormal: {int(current_voltage)}V)"
-                logger.warning(f"⚠️ [{self.id}] Falla de tierra / Subtensión detectada en MeterValues: {current_voltage}V")
-            elif current_voltage > 258.0:
-                detected_fault = f"OverVoltage ({int(current_voltage)}V)"
-                logger.warning(f"⚠️ [{self.id}] Sobretensión detectada: {current_voltage}V")
+            if 5.0 < calibrated_voltage < 85.0:
+                detected_fault = f"UnderVoltage ({int(calibrated_voltage)}V)"
+            elif calibrated_voltage > 265.0:
+                detected_fault = f"OverVoltage ({int(calibrated_voltage)}V)"
             elif current_temp >= 75.0:
                 detected_fault = f"HighTemperature ({int(current_temp)}°C)"
-                logger.warning(f"⚠️ [{self.id}] Alta temperatura detectada: {current_temp}°C")
-
-            is_flowing_current = (current_kw > 0.05) or (current_amps > 0.5)
 
             if cargador:
                 conector_db = db.query(models.Connector).filter_by(charger_id=cargador.id, connector_id=connector_id).first()
@@ -423,17 +417,14 @@ class ChargePointHandler(cp):
                         conector_db.error_code = detected_fault
                     if tx:
                         tx.error_code = detected_fault
-                elif is_flowing_current:
+                else:
+                    # Si hay una sesión activa en curso, mantenemos 'en_uso' y sin error
                     cargador.status = "en_uso"
                     cargador.last_error_code = "NoError"
                     if conector_db:
                         conector_db.status = "en_uso"
                         conector_db.error_code = "NoError"
-                else:
-                    cargador.status = "conectado"
-                    if conector_db:
-                        conector_db.status = "conectado"
-                    if tx:
+                    if tx and (current_kw <= 0.05 and current_amps <= 0.5):
                         tx.idle_seconds = (tx.idle_seconds or 0) + 15
 
             if tx:
@@ -446,7 +437,7 @@ class ChargePointHandler(cp):
                         "kwh": round(current_kwh, 2),
                         "kw": round(current_kw, 2),
                         "soc": current_soc,
-                        "voltage": round(current_voltage, 1)
+                        "voltage": calibrated_voltage
                     })
                     tx.telemetry_log = log_actual
 
@@ -461,20 +452,20 @@ class ChargePointHandler(cp):
     @on('StopTransaction')
     async def on_stop_transaction(self, meter_stop: int, timestamp: str, transaction_id: int, **kwargs):
         reason = kwargs.get("reason", "Local")
-        logger.info(f"[{self.id}] Finalizando transacción {transaction_id} | Medidor final: {meter_stop} Wh | Motivo: {reason}")
+        was_admin_stopped = self.id in paradas_solicitadas_admin
+        paradas_solicitadas_admin.discard(self.id)
+
+        logger.info(f"[{self.id}] Finalizando transacción {transaction_id} | Medidor final: {meter_stop} Wh | Motivo: {reason} | Parada Admin: {was_admin_stopped}")
         
         end_dt = parse_ocpp_timestamp(timestamp)
         db = SessionLocal()
         try:
             cargador = db.query(models.Charger).filter(models.Charger.serial_number == self.id).first()
-            # Buscamos primero si la transacción indicada sigue en_curso
             tx = db.query(models.Transaction).filter(
                 models.Transaction.id == int(transaction_id),
                 models.Transaction.status == "en_curso"
             ).first()
             
-            # Si el firmware mandó un transactionId viejo/desfasado (ej. mandó 35 cuando la activa era la 37),
-            # cerramos la transacción realmente activa en_curso de este cargador
             if not tx and cargador:
                 tx = db.query(models.Transaction).filter(
                     models.Transaction.charger_id == cargador.id,
@@ -510,20 +501,19 @@ class ChargePointHandler(cp):
                 if cargador:
                     ande_rate, ande_cost, band_label = calcular_costo_ande(cargador, start_dt, end_dt, kwh)
 
-                # --- DETECTOR DE MALA CONEXIÓN / CARGA ABORTADA ---
-                # Si la sesión entregó 0 kWh (0 Wh) y se cortó sola o rápido, o tenía falla en el cargador,
-                # registramos el error para que el operador lo vea en el Historial y en el Cargador
+                # --- DETECCIÓN PRECISA DE CORTE POR FALLA (PE / CP ERROR EN MEGGER) VS PARADA NORMAL ---
                 final_error_code = tx.error_code or "NoError"
-                if final_error_code == "NoError" and cargador and cargador.last_error_code not in [None, "NoError"]:
-                    final_error_code = cargador.last_error_code
-
-                if kwh == 0:
-                    if final_error_code == "NoError":
-                        final_error_code = "EVCommunicationError (Mala conexión / 0 Wh entregados)"
-                    if reason == "Local":
-                        reason = "AbortedZeroEnergy"
-                    if cargador:
-                        cargador.last_error_code = final_error_code
+                if was_admin_stopped or reason in ["Remote", "UnlockCommand", "DeAuthorized"]:
+                    # El operador detuvo la prueba manualmente desde el panel -> Es una sesión 100% normal
+                    reason = "Remote"
+                    final_error_code = "NoError"
+                elif reason in ["EmergencyStop", "Other", "PowerLoss", "EVDisconnected"] and duration_sec <= 18 and kwh == 0:
+                    final_error_code = f"EVCommunicationError ({reason})"
+                elif duration_sec <= 15 and kwh == 0 and final_error_code == "NoError":
+                    # Si el cargador cortó solo la carga en <= 15 segundos sin intervención del operador
+                    # (como cuando se pulsa PE Error o CP Error 'E' en el Megger)
+                    final_error_code = "GroundFailure / EVCommunicationError (Corte por protección)"
+                    reason = "ProtectionTrip"
 
                 tx.end_time = end_dt
                 tx.duration_seconds = duration_sec
@@ -540,16 +530,17 @@ class ChargePointHandler(cp):
                 tx.error_code = final_error_code
                 tx.status = "concluida"
 
-            if cargador:
-                # Si la carga se cortó por una falla eléctrica o de conexión, dejamos visible el estado 'falla'
-                if cargador.last_error_code not in [None, "NoError"]:
-                    cargador.status = "falla"
-                else:
-                    cargador.status = "disponible"
-                conectores = db.query(models.Connector).filter_by(charger_id=cargador.id).all()
-                for con in conectores:
-                    con.status = cargador.status
-                    con.error_code = cargador.last_error_code or "NoError"
+                if cargador:
+                    if final_error_code != "NoError":
+                        cargador.status = "falla"
+                        cargador.last_error_code = final_error_code
+                    else:
+                        cargador.status = "disponible"
+                        cargador.last_error_code = "NoError"
+                    conectores = db.query(models.Connector).filter_by(charger_id=cargador.id).all()
+                    for con in conectores:
+                        con.status = cargador.status
+                        con.error_code = cargador.last_error_code
 
             db.commit()
         except Exception as e:
@@ -581,6 +572,7 @@ async def ocpp_endpoint(websocket: WebSocket, charge_point_id: str):
     if cargador_inicial:
         charge_point_id = cargador_inicial.serial_number
         cargador_inicial.status = "disponible"
+        cargador_inicial.last_error_code = "NoError"
         cargador_inicial.last_heartbeat = datetime.now(timezone.utc)
         db.commit()
     db.close()
@@ -614,15 +606,22 @@ async def ocpp_endpoint(websocket: WebSocket, charge_point_id: str):
 @router.post("/{charge_point_id}/reset")
 async def comando_reset(charge_point_id: str, tipo: str = "Soft"):
     cargador = conexiones_activas.get(charge_point_id)
-    if not cargador: raise HTTPException(status_code=404, detail="El cargador está offline")
+    if not cargador:
+        raise HTTPException(status_code=404, detail="El cargador está offline")
     request = call.Reset(type=tipo)
-    response = await cargador.call(request)
-    return {"mensaje": "Comando Reset enviado", "respuesta_hardware": response.status}
+    try:
+        response = await asyncio.wait_for(cargador.call(request), timeout=8.0)
+        return {"mensaje": "Comando Reset enviado", "respuesta_hardware": response.status}
+    except asyncio.TimeoutError:
+        # Muchos firmwares se reinician de inmediato sin responder el CallResult de Reset
+        return {"mensaje": "Comando Reset enviado", "respuesta_hardware": "Accepted (Reinicio en progreso)"}
 
 @router.post("/{charge_point_id}/start")
 async def comando_iniciar_carga(charge_point_id: str, tag: str = "APP-SIPAR", connector_id: int = 1):
     cargador = conexiones_activas.get(charge_point_id)
-    if not cargador: raise HTTPException(status_code=404, detail="El cargador está offline")
+    if not cargador:
+        raise HTTPException(status_code=404, detail="El cargador está offline")
+    paradas_solicitadas_admin.discard(charge_point_id)
     request = call.RemoteStartTransaction(id_tag=tag, connector_id=connector_id)
     response = await cargador.call(request)
     return {"mensaje": "Comando Inicio enviado", "respuesta_hardware": response.status}
@@ -630,8 +629,12 @@ async def comando_iniciar_carga(charge_point_id: str, tag: str = "APP-SIPAR", co
 @router.post("/{charge_point_id}/stop")
 async def comando_parar_carga(charge_point_id: str, transaction_id: int = 1, connector_id: int = 1):
     cargador = conexiones_activas.get(charge_point_id)
-    if not cargador: raise HTTPException(status_code=404, detail="El cargador está offline")
+    if not cargador:
+        raise HTTPException(status_code=404, detail="El cargador está offline")
     
+    # Registramos que esta parada fue solicitada voluntariamente desde el panel Admin
+    paradas_solicitadas_admin.add(charge_point_id)
+
     real_tx_id = transaction_id
     db = SessionLocal()
     try:
@@ -653,7 +656,8 @@ async def comando_parar_carga(charge_point_id: str, transaction_id: int = 1, con
 @router.post("/{charge_point_id}/unlock")
 async def comando_desbloquear(charge_point_id: str, connector_id: int = 1):
     cargador = conexiones_activas.get(charge_point_id)
-    if not cargador: raise HTTPException(status_code=404, detail="El cargador está offline")
+    if not cargador:
+        raise HTTPException(status_code=404, detail="El cargador está offline")
     request = call.UnlockConnector(connector_id=connector_id)
     response = await cargador.call(request)
     return {"respuesta_hardware": response.status}
