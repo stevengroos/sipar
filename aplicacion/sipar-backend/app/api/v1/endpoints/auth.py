@@ -215,12 +215,51 @@ def login_access_token(
         db, "LOGIN_SUCCESS", user.email, "Panel Admin", client_ip, "SUCCESS",
         f"Inicio de sesión exitoso {'con 2FA' if user.mfa_enabled else 'sin 2FA'}", user.id
     )
+    
+    # 5. Evaluar Políticas Globales de Configuración ISO 27001 (Rotación de Claves y 2FA Obligatorio)
+    sys_config = db.query(models.SystemConfig).first()
+    force_pwd_change = bool(user.must_change_password)
+    force_mfa_setup = False
+
+    if sys_config:
+        # Si la política global exige rotación cada 90 o 180 días, verificamos la antigüedad de la clave
+        pwd_policy = (sys_config.security_password or "").lower()
+        max_days = 90 if "90" in pwd_policy else (180 if "180" in pwd_policy else None)
+        if max_days and user.password_changed_at:
+            pwd_dt = user.password_changed_at
+            if pwd_dt.tzinfo is None:
+                pwd_dt = pwd_dt.replace(tzinfo=timezone.utc)
+            if (now_utc - pwd_dt).days > max_days:
+                force_pwd_change = True
+                user.must_change_password = True
+
+        # Si el 2FA global está activado y el usuario aún no vinculó su Authenticator, lo llevamos a Mi Perfil
+        if sys_config.security_2fa and not user.mfa_enabled:
+            force_mfa_setup = True
+
+    # 6. Login exitoso: Reiniciar contadores de fallo y registrar auditoría
+    user.failed_login_attempts = 0
+    user.locked_until = None
+    user.last_login_at = now_utc
+    user.last_login_ip = client_ip
+    db.commit()
+
+    expire_minutes = get_session_Duration_minutes(db)
+    access_token_expires = timedelta(minutes=expire_minutes)
+    access_token = security.create_access_token(
+        subject=user.id, role=user.role, expires_delta=access_token_expires
+    )
+
+    log_security_event(
+        db, "LOGIN_SUCCESS", user.email, "Panel Admin", client_ip, "SUCCESS",
+        f"Inicio de sesión exitoso {'con 2FA' if user.mfa_enabled else 'sin 2FA'}", user.id
+    )
 
     return {
         "access_token": access_token,
         "token_type": "bearer",
         "mfa_required": False,
-        "must_change_password": bool(user.must_change_password),
+        "must_change_password": force_pwd_change or force_mfa_setup,
         "user": {
             "id": user.id,
             "email": user.email,
