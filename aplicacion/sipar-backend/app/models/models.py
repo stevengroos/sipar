@@ -118,6 +118,15 @@ class Transaction(Base):
     user = relationship("User")
     charger = relationship("Charger")
     
+    # --- Gestión de Reclamos, Disputas y Reversiones (App Móvil & Finanzas) ---
+    dispute_status = Column(String(30), default="none") # 'none', 'pending', 'refunded', 'rejected'
+    dispute_reason = Column(String, nullable=True)
+    dispute_created_at = Column(DateTime(timezone=True), nullable=True)
+    refund_amount_pyg = Column(Float, default=0.0)
+    dispute_resolution_note = Column(String, nullable=True)
+    dispute_resolved_at = Column(DateTime(timezone=True), nullable=True)
+    dispute_resolved_by = Column(String(150), nullable=True)
+    
 class SystemConfig(Base):
     __tablename__ = "system_configs"
     id = Column(Integer, primary_key=True, index=True)
