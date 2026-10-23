@@ -160,13 +160,16 @@ class Product(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
     sku = Column(String, unique=True, index=True, nullable=False)
+    category = Column(String(80), default="Accesorios EV")
+    description = Column(String, nullable=True, default="")
     price = Column(Numeric, nullable=False)
     stock = Column(Integer, default=0)
     image_url = Column(String, nullable=True)
+    show_in_app = Column(Boolean, default=True)
     is_active = Column(Boolean, default=True)
 
     stock_movements = relationship("StockHistory", back_populates="product")
-
+    
 class StockHistory(Base):
     __tablename__ = "stock_history"
     id = Column(Integer, primary_key=True, index=True)
