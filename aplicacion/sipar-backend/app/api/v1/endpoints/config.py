@@ -9,6 +9,7 @@ from app.models import models
 from app.api import deps
 
 router = APIRouter()
+PY_TZ = timezone(timedelta(hours=-3))
 
 def get_client_ip(request: Request) -> str:
     forwarded = request.headers.get("x-forwarded-for")
@@ -81,6 +82,15 @@ class ComplianceReportResponse(BaseModel):
     total_audit_events: int
     security_alerts_24h: int
     pending_financial_disputes: int
+
+class SystemNotificationItem(BaseModel):
+    id: str
+    category: str       # 'hardware' | 'fraud' | 'daily'
+    severity: str       # 'danger' | 'warning' | 'info' | 'success'
+    title: str
+    message: str
+    link: str
+    timestamp: Optional[datetime] = None
 
 
 def classify_audit_module(action: str) -> str:
@@ -199,7 +209,6 @@ def get_iso27001_compliance_report(
     mfa_users = len([u for u in active_users if u.mfa_enabled])
     mfa_rate = round((mfa_users / total_active) * 100) if total_active > 0 else 100
 
-    # Evaluar vigencia de contraseñas según política activa (90 o 180 días)
     max_days = 90
     if "180" in (config.security_password or ""):
         max_days = 180
@@ -246,21 +255,16 @@ def get_iso27001_compliance_report(
         .count()
     )
 
-    # Cálculo ponderado del Score ISO 27001 (0 - 100)
     score = 0
-    # 1. Adopción MFA (35 pts)
     score += round((mfa_rate / 100.0) * 35)
-    # 2. Vigencia de contraseñas (25 pts)
     pwd_ratio = (compliant_pwd_count / total_active) if total_active > 0 else 1.0
     score += round(pwd_ratio * 25)
-    # 3. Políticas globales activas (25 pts)
     if config.security_2fa:
         score += 10
     if "15" in (config.security_session or "") or "30" in (config.security_session or ""):
         score += 8
     if "no exigir" not in (config.security_password or "").lower():
         score += 7
-    # 4. Trazabilidad y operación controlada (15 pts)
     if total_chargers == 0 or chargers_with_tariff == total_chargers:
         score += 8
     if pending_disputes == 0:
@@ -308,3 +312,149 @@ def get_general_audit_logs(
         )
         for log in logs
     ]
+
+
+# =========================================================================
+# 4. CENTRO DE NOTIFICACIONES EN VIVO CONECTADO A CONFIGURACIÓN (CAMPANITA)
+# =========================================================================
+@router.get("/notifications", response_model=List[SystemNotificationItem])
+def get_active_notifications(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(deps.get_current_active_user)
+):
+    """
+    Genera el feed de notificaciones en tiempo real para la campanita del Layout
+    respetando los 3 interruptores configurados en SystemConfig:
+    - notif_hardware: Fallas OCPP (PE/CP), estaciones en falla o desconectadas.
+    - notif_fraud: Reclamos/disputas pendientes en Finanzas y alertas de seguridad ISO 27001.
+    - notif_daily: Resumen diario consolidado de energía kWh, facturación y liquidación ANDE.
+    """
+    config = get_or_create_config(db)
+    now_utc = datetime.now(timezone.utc)
+    notifications: List[SystemNotificationItem] = []
+
+    # 1. ALERTAS CRÍTICAS DE HARDWARE (OCPP)
+    if config.notif_hardware:
+        chargers = db.query(models.Charger).filter(models.Charger.is_active == True).all()
+        for ch in chargers:
+            if ch.status == "falla" or (ch.last_error_code and ch.last_error_code != "NoError"):
+                notifications.append(SystemNotificationItem(
+                    id=f"hw-fault-{ch.id}-{ch.last_error_code}",
+                    category="hardware",
+                    severity="danger",
+                    title=f"Falla OCPP en Estación {ch.serial_number}",
+                    message=f"Diagnóstico activo: {ch.last_error_code or 'Error técnico reportado'}.",
+                    link="/admin/cargadores",
+                    timestamp=ch.last_heartbeat or now_utc
+                ))
+            elif ch.status == "fuera_de_linea":
+                notifications.append(SystemNotificationItem(
+                    id=f"hw-offline-{ch.id}",
+                    category="hardware",
+                    severity="warning",
+                    title=f"Estación Fuera de Línea: {ch.serial_number}",
+                    message=f"El cargador ({ch.power_kw} kW) no tiene conexión WebSocket activa.",
+                    link="/admin/cargadores",
+                    timestamp=ch.last_heartbeat or now_utc
+                ))
+
+        # Últimas sesiones abortadas por falla eléctrica o de comunicación (últimas 24h)
+        since_24h = now_utc - timedelta(hours=24)
+        fault_txs = (
+            db.query(models.Transaction)
+            .filter(
+                models.Transaction.start_time >= since_24h,
+                models.Transaction.error_code != None,
+                models.Transaction.error_code != "NoError"
+            )
+            .order_by(models.Transaction.id.desc())
+            .limit(5)
+            .all()
+        )
+        for ftx in fault_txs:
+            serial = ftx.charger.serial_number if ftx.charger else f"ID #{ftx.charger_id}"
+            notifications.append(SystemNotificationItem(
+                id=f"tx-fault-{ftx.id}",
+                category="hardware",
+                severity="danger",
+                title=f"Corte por Protección en #{ftx.id} ({serial})",
+                message=f"{ftx.error_code} • Motivo: {ftx.stop_reason or 'ProtectionTrip'}",
+                link="/admin/historial",
+                timestamp=ftx.end_time or ftx.start_time or now_utc
+            ))
+
+    # 2. ALERTAS DE FRAUDE, RECLAMOS FINANCIEROS Y SEGURIDAD ISO 27001
+    if config.notif_fraud:
+        pending_disputes = (
+            db.query(models.Transaction)
+            .filter(models.Transaction.dispute_status == "pending")
+            .order_by(models.Transaction.id.desc())
+            .limit(10)
+            .all()
+        )
+        for dtx in pending_disputes:
+            user_name = f"{dtx.user.first_name or ''} {dtx.user.last_name or ''}".strip() if dtx.user else "Cliente App"
+            notifications.append(SystemNotificationItem(
+                id=f"dispute-pending-{dtx.id}",
+                category="fraud",
+                severity="danger",
+                title=f"Reclamo / Reversión Pendiente (#TRX-{dtx.id})",
+                message=f"{user_name} solicita revisión por {int(dtx.total_amount_pyg or 0):,} ₲: \"{dtx.dispute_reason or 'Sin detalle'}\"".replace(",", "."),
+                link="/admin/finanzas",
+                timestamp=dtx.dispute_created_at or dtx.start_time or now_utc
+            ))
+
+        # Eventos de seguridad WARNING / DANGER en las últimas 24h (bloqueos, contraseñas fallidas, etc.)
+        since_24h = now_utc - timedelta(hours=24)
+        sec_alerts = (
+            db.query(models.SecurityAuditLog)
+            .filter(
+                models.SecurityAuditLog.created_at >= since_24h,
+                models.SecurityAuditLog.status.in_(["WARNING", "DANGER"])
+            )
+            .order_by(models.SecurityAuditLog.id.desc())
+            .limit(6)
+            .all()
+        )
+        for salert in sec_alerts:
+            notifications.append(SystemNotificationItem(
+                id=f"sec-alert-{salert.id}",
+                category="fraud",
+                severity="danger" if salert.status == "DANGER" else "warning",
+                title=f"Alerta Seguridad ISO 27001: {salert.action}",
+                message=f"{salert.details or ''} (Actor: {salert.actor_email})",
+                link="/admin/configuracion",
+                timestamp=salert.created_at or now_utc
+            ))
+
+    # 3. RESUMEN DIARIO DE OPERACIONES Y LIQUIDACIÓN ANDE
+    if config.notif_daily:
+        now_py = now_utc.astimezone(PY_TZ)
+        start_of_day_py = now_py.replace(hour=0, minute=0, second=0, microsecond=0)
+        start_of_day_utc = start_of_day_py.astimezone(timezone.utc)
+
+        today_txs = (
+            db.query(models.Transaction)
+            .filter(models.Transaction.start_time >= start_of_day_utc)
+            .all()
+        )
+        total_kwh = sum(float(t.kwh_delivered or 0.0) for t in today_txs)
+        total_rev = sum(float(t.total_amount_pyg or 0.0) for t in today_txs)
+        total_ande = sum(float(t.ande_energy_cost_pyg or 0.0) for t in today_txs)
+        net_margin = total_rev - total_ande
+
+        notifications.insert(0, SystemNotificationItem(
+            id=f"daily-summary-{now_py.strftime('%Y-%m-%d')}",
+            category="daily",
+            severity="info",
+            title=f"Resumen Operativo del Día ({now_py.strftime('%d/%m/%Y')})",
+            message=(
+                f"{len(today_txs)} sesiones hoy • {total_kwh:.2f} kWh entregados • "
+                f"Cobrado: {int(total_rev):,} ₲ • ANDE: {int(total_ande):,} ₲ • "
+                f"Margen Neto: {int(net_margin):,} ₲"
+            ).replace(",", "."),
+            link="/admin/historial",
+            timestamp=now_utc
+        ))
+
+    return notifications
