@@ -446,13 +446,14 @@ class ChargePointHandler(cp):
     @on('StopTransaction')
     async def on_stop_transaction(self, meter_stop: int, timestamp: str, transaction_id: int, **kwargs):
         reason = kwargs.get("reason", "Local")
+        stop_id_tag = str(kwargs.get("id_tag", "") or "")
         was_admin_stopped = self.id in paradas_solicitadas_admin
         paradas_solicitadas_admin.discard(self.id)
         pre_stop_state = ultimo_estado_ocpp.get(self.id, "Charging")
 
         logger.info(
             f"[{self.id}] Finalizando transacción {transaction_id} | Medidor: {meter_stop} Wh | "
-            f"Estado previo: {pre_stop_state} | Parada Admin: {was_admin_stopped}"
+            f"Estado previo: {pre_stop_state} | StopTag: '{stop_id_tag}' | Parada Admin: {was_admin_stopped}"
         )
         
         end_dt = parse_ocpp_timestamp(timestamp)
@@ -500,26 +501,27 @@ class ChargePointHandler(cp):
                     ande_rate, ande_cost, band_label = calcular_costo_ande(cargador, start_dt, end_dt, kwh)
 
                 # =========================================================================
-                # CLASIFICACIÓN EXACTA DE EVENTOS SEGÚN FIRMWARE WGD + TESTER MEGGER
+                # CLASIFICACIÓN EXACTA SIN LÍMITE DE TIEMPO (SOPORTA CORTE A LOS 6s O 5 MIN)
                 # =========================================================================
                 final_error_code = tx.error_code or "NoError"
 
                 if was_admin_stopped or reason in ["Remote", "UnlockCommand", "DeAuthorized"]:
-                    # 1. El operador detuvo la sesión desde el botón 'Forzar Fin de Carga'
+                    # 1. El operador detuvo la sesión desde el botón 'Forzar Fin de Carga' (ej. TRX #49)
                     reason = "Remote"
                     final_error_code = "NoError"
-                elif duration_sec <= 45 and kwh == 0 and final_error_code == "NoError":
-                    # 2. El cargador cortó solo la sesión (sin comando desde el panel):
-                    if pre_stop_state == "Finishing":
-                        # En la prueba de las 10:28 (PE Error / Falla de Tierra), el cargador
-                        # pasa primero a 'Finishing' antes de enviar StopTransaction
-                        final_error_code = "GroundFailure (Fallo de puesta a tierra PE detectado)"
-                        reason = "GroundFault"
-                    else:
-                        # En las pruebas de las 10:30 y 10:31 (CP Error 'E' / Mala conexión),
-                        # el cargador cae directo a 'Preparing' o 'Available' sin pasar por 'Finishing'
+                elif final_error_code == "NoError" and (stop_id_tag == "6868" or pre_stop_state != "Charging"):
+                    # 2. El cargador abortó la carga por sí solo (sin orden del panel Admin),
+                    # ya sea a los 6 segundos (#51, #52, #53) o tras 5 minutos de carga (#50):
+                    if pre_stop_state == "Available":
+                        # Al simular Error de Comunicación CP (TRX #52), el cortocircuito en CP
+                        # hace que el cargador pierda detección del vehículo y caiga directo a 'Available'
                         final_error_code = "EVCommunicationError (Fallo de comunicación CP con el vehículo)"
                         reason = "CPCommunicationFault"
+                    else:
+                        # Al simular Falla de Tierra PE (TRX #50, #51 y #53), el cargador abre el contactor
+                        # pero sigue detectando el conector enchufado y cae a 'Preparing' o 'Finishing'
+                        final_error_code = "GroundFailure (Fallo de puesta a tierra PE detectado)"
+                        reason = "GroundFault"
 
                 tx.end_time = end_dt
                 tx.duration_seconds = duration_sec
