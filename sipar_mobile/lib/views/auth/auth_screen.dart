@@ -820,12 +820,25 @@ class _AuthScreenState extends State<AuthScreen> {
                     const SizedBox(height: 16),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.center,
-                      children: const [
-                        Icon(LucideIcons.lock, size: 12, color: Colors.grey),
-                        SizedBox(width: 5),
-                        Text(
-                          'Protegido bajo controles ISO/IEC 27001 • Keychain Cifrado',
-                          style: TextStyle(fontSize: 10.5, color: Colors.grey),
+                      children: [
+                        const Icon(
+                          LucideIcons.lock,
+                          size: 12,
+                          color: Colors.grey,
+                        ),
+                        const SizedBox(width: 5),
+                        Expanded(
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            alignment: Alignment.centerLeft,
+                            child: const Text(
+                              'Protegido bajo controles ISO/IEC 27001 • Keychain Cifrado',
+                              style: TextStyle(
+                                fontSize: 10.5,
+                                color: Colors.grey,
+                              ),
+                            ),
+                          ),
                         ),
                       ],
                     ),

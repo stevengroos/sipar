@@ -36,6 +36,62 @@ class AuditLogResponse(BaseModel):
     class Config:
         from_attributes = True
 
+class SelfProfileUpdate(BaseModel):
+    first_name: str
+    last_name: str
+
+# ==========================================
+# 0. ENDPOINTS DEL PROPIO CONDUCTOR (/me)
+# ==========================================
+@router.get("/me", response_model=UserResponse)
+def get_my_profile(
+    current_user: models.User = Depends(deps.get_current_active_user)
+):
+    """Retorna el perfil actualizado del usuario autenticado."""
+    return current_user
+
+@router.put("/me", response_model=UserResponse)
+def update_my_profile(
+    profile_in: SelfProfileUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(deps.get_current_active_user)
+):
+    """Permite al conductor actualizar su nombre y apellido registrando auditoría ISO 27001."""
+    fn = profile_in.first_name.strip()
+    ln = profile_in.last_name.strip()
+    if not fn or not ln:
+        raise HTTPException(status_code=400, detail="Nombre y apellido son obligatorios.")
+
+    current_user.first_name = fn
+    current_user.last_name = ln
+    db.commit()
+    db.refresh(current_user)
+
+    log_security_event(
+        db, "USER_SELF_UPDATED", current_user.email, current_user.email, get_client_ip(request),
+        "SUCCESS", f"Actualización de perfil desde App Móvil ({fn} {ln})", current_user.id
+    )
+    return current_user
+
+@router.get("/me/audit-logs", response_model=List[AuditLogResponse])
+def get_my_security_audit_logs(
+    limit: int = Query(25, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(deps.get_current_active_user)
+):
+    """Devuelve al usuario su propia bitácora de seguridad (Control ISO 27001 A.8.15)."""
+    return (
+        db.query(models.SecurityAuditLog)
+        .filter(
+            (models.SecurityAuditLog.user_id == current_user.id) |
+            (models.SecurityAuditLog.target == current_user.email)
+        )
+        .order_by(models.SecurityAuditLog.id.desc())
+        .limit(limit)
+        .all()
+    )
+
 # ==========================================
 # 1. OBTENER USUARIOS (ACTIVOS Y SUSPENDIDOS)
 # ==========================================

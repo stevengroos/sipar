@@ -104,7 +104,6 @@ class _ActividadViewState extends State<ActividadView> {
     setState(() => _isLoading = true);
 
     try {
-      // Endpoint optimizado que realiza la búsqueda, el filtro y la paginación en SQL
       final res = await ApiClient.dio.get(
         '/api/v1/transactions/me?period=$_period&limit=50',
       );
@@ -260,7 +259,6 @@ class _ActividadViewState extends State<ActividadView> {
           builder: (_, controller) {
             return Column(
               children: [
-                // Cabecera Modal
                 Container(
                   padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
                   decoration: BoxDecoration(
@@ -382,7 +380,7 @@ class _ActividadViewState extends State<ActividadView> {
                           const SizedBox(width: 4),
                           Text(
                             '${tx.kwh.toStringAsFixed(2)} kWh',
-                            style: TextStyle(
+                            style: const TextStyle(
                               fontSize: 12,
                               color: SiparColors.green,
                               fontWeight: FontWeight.w800,
@@ -393,8 +391,6 @@ class _ActividadViewState extends State<ActividadView> {
                     ],
                   ),
                 ),
-
-                // Contenido Scrollable
                 Expanded(
                   child: ListView(
                     controller: controller,
@@ -468,7 +464,6 @@ class _ActividadViewState extends State<ActividadView> {
                         ),
                       ),
                       const SizedBox(height: 16),
-
                       Container(
                         padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
@@ -539,7 +534,6 @@ class _ActividadViewState extends State<ActividadView> {
                         ),
                       ),
                       const SizedBox(height: 16),
-
                       Container(
                         padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
@@ -741,7 +735,6 @@ class _ActividadViewState extends State<ActividadView> {
             ],
           ),
           const SizedBox(height: 20),
-
           Text(
             'Mis Estadísticas',
             style: TextStyle(
@@ -752,7 +745,6 @@ class _ActividadViewState extends State<ActividadView> {
             ),
           ),
           const SizedBox(height: 16),
-
           if (_isLoading)
             const SizedBox(
               height: 100,
@@ -823,9 +815,7 @@ class _ActividadViewState extends State<ActividadView> {
                 ),
               ],
             ),
-
           const SizedBox(height: 24),
-
           Container(
             padding: const EdgeInsets.all(18),
             decoration: BoxDecoration(
@@ -871,7 +861,6 @@ class _ActividadViewState extends State<ActividadView> {
               ],
             ),
           ),
-
           if (_recentSessions.isNotEmpty) ...[
             const SizedBox(height: 24),
             Text(
@@ -883,7 +872,6 @@ class _ActividadViewState extends State<ActividadView> {
               ),
             ),
             const SizedBox(height: 12),
-
             ..._recentSessions.map((tx) {
               final hasFault =
                   tx.errorCode.isNotEmpty && tx.errorCode != 'NoError';
@@ -909,58 +897,67 @@ class _ActividadViewState extends State<ActividadView> {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Row(
-                        children: [
-                          Container(
-                            width: 38,
-                            height: 38,
-                            decoration: BoxDecoration(
-                              color: hasFault
-                                  ? SiparColors.red.withValues(alpha: 0.15)
-                                  : SiparColors.green.withValues(alpha: 0.15),
-                              shape: BoxShape.circle,
-                            ),
-                            child: Icon(
-                              hasFault
-                                  ? LucideIcons.triangleAlert
-                                  : LucideIcons.zap,
-                              size: 16,
-                              color: hasFault
-                                  ? SiparColors.red
-                                  : SiparColors.green,
-                            ),
-                          ),
-                          const SizedBox(width: 14),
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                '${tx.chargerSerial} • #${tx.id}',
-                                style: TextStyle(
-                                  fontSize: 13.5,
-                                  fontWeight: FontWeight.bold,
-                                  color: bgTextPrimary,
-                                ),
+                      Expanded(
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 38,
+                              height: 38,
+                              decoration: BoxDecoration(
+                                color: hasFault
+                                    ? SiparColors.red.withValues(alpha: 0.15)
+                                    : SiparColors.green.withValues(alpha: 0.15),
+                                shape: BoxShape.circle,
                               ),
-                              const SizedBox(height: 2),
-                              Text(
+                              child: Icon(
                                 hasFault
-                                    ? 'Alerta OCPP: ${tx.errorCode.split(' ').first}'
-                                    : _formatDateShort(tx.startTime),
-                                style: TextStyle(
-                                  fontSize: 11.5,
-                                  color: hasFault
-                                      ? SiparColors.red
-                                      : bgTextSecondary,
-                                  fontWeight: hasFault
-                                      ? FontWeight.w700
-                                      : FontWeight.w500,
-                                ),
+                                    ? LucideIcons.triangleAlert
+                                    : LucideIcons.zap,
+                                size: 16,
+                                color: hasFault
+                                    ? SiparColors.red
+                                    : SiparColors.green,
                               ),
-                            ],
-                          ),
-                        ],
+                            ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    '${tx.chargerSerial} • #${tx.id}',
+                                    style: TextStyle(
+                                      fontSize: 13.5,
+                                      fontWeight: FontWeight.bold,
+                                      color: bgTextPrimary,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    hasFault
+                                        ? 'Alerta OCPP: ${tx.errorCode.split(' ').first}'
+                                        : _formatDateShort(tx.startTime),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 11.5,
+                                      color: hasFault
+                                          ? SiparColors.red
+                                          : bgTextSecondary,
+                                      fontWeight: hasFault
+                                          ? FontWeight.w700
+                                          : FontWeight.w500,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
+                      const SizedBox(width: 12),
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.end,
                         children: [
