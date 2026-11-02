@@ -32,6 +32,10 @@ class User(Base):
     must_change_password = Column(Boolean, default=False)
     
     company = relationship("Company")
+    
+    billing_ruc = Column(String(255), nullable=True)   # Se guarda cifrado (ISO 27001 A.8.24)
+    billing_name = Column(String(255), nullable=True)  # Se guarda cifrado (ISO 27001 A.8.24)
+    vehicles = Column(JSON, default=[])                # Garaje EV del conductor
 
 class Charger(Base):
     __tablename__ = "chargers"
@@ -200,4 +204,15 @@ class SecurityAuditLog(Base):
     ip_address = Column(String(64), nullable=True)
     status = Column(String(30), default="SUCCESS") # SUCCESS, WARNING, DANGER
     details = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    
+class FaqItem(Base):
+    __tablename__ = "faq_items"
+    id = Column(Integer, primary_key=True, index=True)
+    question = Column(String(300), nullable=False)
+    answer = Column(String, nullable=False)
+    category = Column(String(80), default="General")
+    order_index = Column(Integer, default=1)
+    is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

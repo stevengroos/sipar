@@ -70,5 +70,7 @@
 <string>SIPAR necesita tu ubicación para mostrarte dónde estás en el mapa y encontrar los cargadores eléctricos más cercanos.</string>
 <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 <string>SIPAR necesita tu ubicación para guiarte hacia las estaciones de carga OCPP.</string>
+<key>NSFaceIDUsageDescription</key>
+<string>SIPAR utiliza Face ID para validar tu identidad y desbloquear tu cuenta de forma segura conforme a ISO/IEC 27001.</string>
 </dict>
 </plist>

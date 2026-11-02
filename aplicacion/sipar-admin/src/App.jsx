@@ -3,7 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate, Outlet, Link, useLocation, useN
 import { 
   HardHat, LayoutDashboard, Zap, Users, Wallet, 
   SlidersHorizontal, ShoppingBag, Settings, LogOut, Bell, Clock, ShieldCheck,
-  AlertTriangle, AlertCircle, BarChart3, CheckCheck, ExternalLink, X, ShieldAlert
+  AlertTriangle, AlertCircle, BarChart3, CheckCheck, ExternalLink, X, ShieldAlert, HelpCircle
 } from 'lucide-react';
 import api from './api/axios';
 
@@ -17,13 +17,29 @@ import Tienda from './views/Tienda';
 import Configuracion from './views/Configuracion';
 import Historial from './views/Historial';
 import Perfil from './views/Perfil';
+import PreguntasFrecuentes from './views/PreguntasFrecuentes';
 
 // ==========================================
 // COMPONENTE: GUARDIA DE SEGURIDAD (RUTAS PROTEGIDAS)
 // ==========================================
+const ALLOWED_WEB_ROLES = ['superadmin', 'admin', 'operador', 'super admin'];
+
 const ProtectedRoute = ({ children }) => {
   const token = localStorage.getItem('sipar_token');
   if (!token) {
+    return <Navigate to="/login" replace />;
+  }
+  try {
+    const savedUser = JSON.parse(localStorage.getItem('sipar_user') || '{}');
+    const userRole = String(savedUser?.role || '').trim().toLowerCase();
+    if (userRole && !ALLOWED_WEB_ROLES.includes(userRole)) {
+      localStorage.removeItem('sipar_token');
+      localStorage.removeItem('sipar_user');
+      alert('Acceso denegado (ISO/IEC 27001): Las cuentas de Conductor son exclusivas para la App Móvil SIPAR.');
+      return <Navigate to="/login" replace />;
+    }
+  } catch {
+    localStorage.removeItem('sipar_token');
     return <Navigate to="/login" replace />;
   }
   return children;
@@ -135,10 +151,14 @@ function AdminLayout() {
       }
 
       if (meRes.status === 'fulfilled') {
-        setCurrentUser(meRes.value.data);
-        localStorage.setItem('sipar_user', JSON.stringify(meRes.value.data));
-      } else if (meRes.reason?.response?.status === 401) {
-        handleLogout();
+        const meData = meRes.value.data;
+        const roleClean = String(meData?.role || '').trim().toLowerCase();
+        if (!ALLOWED_WEB_ROLES.includes(roleClean)) {
+          handleLogout();
+          return;
+        }
+        setCurrentUser(meData);
+        localStorage.setItem('sipar_user', JSON.stringify(meData));
       }
 
       if (notifRes.status === 'fulfilled') {
@@ -257,6 +277,7 @@ function AdminLayout() {
           <p className="px-3 text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2 mt-6">Administración</p>
           <NavItem to="/admin/parametros" icon={SlidersHorizontal} label="Tarifas & Parámetros" />
           <NavItem to="/admin/tienda" icon={ShoppingBag} label="Tienda Accesorios" />
+          <NavItem to="/admin/faqs" icon={HelpCircle} label="Preguntas Frecuentes" />
           <NavItem to="/admin/configuracion" icon={Settings} label="Configuración" />
           <NavItem to="/admin/perfil" icon={ShieldCheck} label="Mi Perfil & MFA" />
         </nav>
@@ -533,6 +554,7 @@ export default function App() {
           <Route path="tienda" element={<Tienda />} />
           <Route path="configuracion" element={<Configuracion />} />
           <Route path="perfil" element={<Perfil />} />
+          <Route path="faqs" element={<PreguntasFrecuentes />} />
         </Route>
 
         <Route path="*" element={<Navigate to="/login" replace />} />

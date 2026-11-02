@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:dio/dio.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../../core/api_client.dart';
@@ -27,11 +26,11 @@ class EvVehicleModel {
 
   factory EvVehicleModel.fromJson(Map<String, dynamic> json) {
     return EvVehicleModel(
-      brandModel: (json['brandModel'] ?? 'BYD Dolphin').toString(),
-      plate: (json['plate'] ?? 'AAA 123').toString(),
+      brandModel: (json['brandModel'] ?? '').toString(),
+      plate: (json['plate'] ?? 'S/C').toString(),
       connectorType: (json['connectorType'] ?? 'CCS2').toString(),
       batteryKwh:
-          (num.tryParse(json['batteryKwh']?.toString() ?? '44.9') ?? 44.9)
+          (num.tryParse(json['batteryKwh']?.toString() ?? '60.0') ?? 60.0)
               .toDouble(),
     );
   }
@@ -378,11 +377,12 @@ class ProfileModals {
     );
   }
 
-  // 2. MODAL DE BITÁCORA PERSONAL Y AUDITORÍA ISO 27001 (A.8.15)
+  // 2. MODAL DE BITÁCORA PERSONAL Y AUDITORÍA ISO 27001 (SIN OVERFLOW)
   static Future<void> showSecurityAuditSheet(
     BuildContext context, {
     required bool isDark,
     required bool bioEnabled,
+    required String biometricLabel,
     required String userEmail,
   }) async {
     final bgSheet = isDark ? const Color(0xFF0B0F17) : const Color(0xFFF4FBF7);
@@ -425,47 +425,49 @@ class ProfileModals {
                       ),
                     ),
                     const SizedBox(height: 16),
+                    // CABECERA CON EXPANDED PARA EVITAR RIGHT OVERFLOW
                     Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
-                        Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(10),
-                              decoration: BoxDecoration(
-                                color: SiparColors.green.withValues(
-                                  alpha: 0.15,
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: SiparColors.green.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: const Icon(
+                            LucideIcons.shieldCheck,
+                            color: SiparColors.green,
+                            size: 22,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Centro de Seguridad ISO 27001',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w800,
+                                  color: textPrim,
                                 ),
-                                borderRadius: BorderRadius.circular(12),
                               ),
-                              child: const Icon(
-                                LucideIcons.shieldCheck,
-                                color: SiparColors.green,
-                                size: 22,
+                              const SizedBox(height: 2),
+                              Text(
+                                'Controles A.5.17, A.8.15, A.8.24 y Keychain',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 11.5,
+                                  color: textSec,
+                                ),
                               ),
-                            ),
-                            const SizedBox(width: 12),
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Centro de Seguridad ISO 27001',
-                                  style: TextStyle(
-                                    fontSize: 17,
-                                    fontWeight: FontWeight.w800,
-                                    color: textPrim,
-                                  ),
-                                ),
-                                Text(
-                                  'Controles A.5.17, A.8.15 y Keychain iOS',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: textSec,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
                         IconButton(
                           onPressed: () => Navigator.pop(ctx),
@@ -485,7 +487,7 @@ class ProfileModals {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'PROTECCIONES ACTIVAS EN TU DISPOSITIVO',
+                            'PROTECCIONES ACTIVAS EN TU CUENTA',
                             style: TextStyle(
                               fontSize: 10.5,
                               fontWeight: FontWeight.w800,
@@ -495,16 +497,16 @@ class ProfileModals {
                           ),
                           const SizedBox(height: 12),
                           _SecurityCheckRow(
-                            title: 'Almacenamiento Cifrado (iOS Keychain)',
+                            title: 'Almacenamiento y PII Cifrado (A.8.24)',
                             subtitle:
-                                'Tokens JWT resguardados en hardware seguro',
+                                'Tokens en Keychain/Keystore y RUC cifrado en BD',
                             isActive: true,
                             textPrim: textPrim,
                             textSec: textSec,
                           ),
                           const Divider(height: 20),
                           _SecurityCheckRow(
-                            title: 'Autenticación Biométrica (Face ID)',
+                            title: 'Autenticación Biométrica ($biometricLabel)',
                             subtitle: bioEnabled
                                 ? 'Desbloqueo biométrico activo para $userEmail'
                                 : 'Pendiente de activación en preferencias',

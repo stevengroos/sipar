@@ -1,8 +1,7 @@
-import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/api_client.dart';
 import '../../core/biometric_service.dart';
@@ -23,22 +22,16 @@ class _PerfilViewState extends State<PerfilView> {
   String _lastName = 'SIPAR';
   String _email = 'conductor@sipar.com.py';
   String _userIdBadge = 'ID ---';
-  String _role = 'driver';
+  String _role = 'conductor';
   bool _bioEnabled = false;
+  String _biometricLabel = Platform.isIOS ? 'Face ID' : 'Huella Digital';
 
-  // Datos de Facturación Local (Paraguay - RUC / CI)
+  // Datos de Facturación (persistidos y cifrados en BD)
   String _billingRuc = '';
   String _billingName = '';
 
-  // Garaje de Vehículos EV del Usuario
-  List<EvVehicleModel> _vehicles = [
-    const EvVehicleModel(
-      brandModel: 'BYD Dolphin',
-      plate: 'AAA 123',
-      connectorType: 'CCS2',
-      batteryKwh: 44.9,
-    ),
-  ];
+  // Garaje de Vehículos EV (vacío por defecto si el usuario no registró ninguno)
+  List<EvVehicleModel> _vehicles = [];
   int _selectedVehicleIndex = 0;
 
   @override
@@ -58,40 +51,20 @@ class _PerfilViewState extends State<PerfilView> {
   Future<void> _loadAllProfileData() async {
     final user = await SecureStorageService.getUser();
     final bio = await SecureStorageService.isBiometricEnabled();
-    final prefs = await SharedPreferences.getInstance();
+    final bioLabel = await BiometricService.getBiometricLabel();
 
     if (user != null) {
       _applyUserMap(user);
     }
 
-    // Cargar preferencias de facturación y vehículos guardados
-    final savedRuc = prefs.getString('sipar_billing_ruc') ?? '';
-    final savedRaz = prefs.getString('sipar_billing_name') ?? '';
-    final savedVehiclesRaw = prefs.getString('sipar_ev_garage');
-    final savedIdx = prefs.getInt('sipar_ev_selected_idx') ?? 0;
-
-    if (savedVehiclesRaw != null && savedVehiclesRaw.isNotEmpty) {
-      try {
-        final decoded = jsonDecode(savedVehiclesRaw) as List<dynamic>;
-        final parsed = decoded
-            .map((e) => EvVehicleModel.fromJson(Map<String, dynamic>.from(e)))
-            .toList();
-        if (parsed.isNotEmpty) {
-          _vehicles = parsed;
-          _selectedVehicleIndex = savedIdx.clamp(0, _vehicles.length - 1);
-        }
-      } catch (_) {}
-    }
-
     if (mounted) {
       setState(() {
         _bioEnabled = bio;
-        _billingRuc = savedRuc;
-        _billingName = savedRaz;
+        _biometricLabel = bioLabel;
       });
     }
 
-    // Sincronizar con el backend en segundo plano si el endpoint /users/me está activo
+    // Sincronizar desde PostgreSQL (incluyendo RUC descifrado y garaje de vehículos)
     try {
       final res = await ApiClient.dio.get('/api/v1/users/me');
       if (res.data is Map) {
@@ -127,24 +100,77 @@ class _PerfilViewState extends State<PerfilView> {
     if (user['role'] != null) {
       _role = user['role'].toString();
     }
+    if (user['billing_ruc'] != null) {
+      _billingRuc = user['billing_ruc'].toString();
+    }
+    if (user['billing_name'] != null) {
+      _billingName = user['billing_name'].toString();
+    }
+    if (user['vehicles'] is List) {
+      final rawList = user['vehicles'] as List<dynamic>;
+      _vehicles = rawList
+          .whereType()
+          .map((e) => EvVehicleModel.fromJson(Map<String, dynamic>.from(e)))
+          .where((v) => v.brandModel.trim().isNotEmpty)
+          .toList();
+      if (_selectedVehicleIndex >= _vehicles.length) {
+        _selectedVehicleIndex = 0;
+      }
+    }
   }
 
-  Future<void> _saveGarageToPrefs() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(
-      'sipar_ev_garage',
-      jsonEncode(_vehicles.map((v) => v.toJson()).toList()),
-    );
-    await prefs.setInt('sipar_ev_selected_idx', _selectedVehicleIndex);
+  Future<void> _syncProfileToBackend() async {
+    try {
+      final res = await ApiClient.dio.put(
+        '/api/v1/users/me',
+        data: {
+          'first_name': _firstName,
+          'last_name': _lastName,
+          'billing_ruc': _billingRuc,
+          'billing_name': _billingName,
+          'vehicles': _vehicles.map((v) => v.toJson()).toList(),
+        },
+      );
+      if (res.data is Map) {
+        final updatedUser = Map<String, dynamic>.from(res.data);
+        final token = await SecureStorageService.getToken();
+        if (token != null) {
+          await SecureStorageService.saveSession(
+            token: token,
+            user: updatedUser,
+          );
+        }
+      }
+    } catch (_) {}
   }
 
   Future<void> _toggleBiometrics() async {
     HapticFeedback.selectionClick();
     final nextVal = !_bioEnabled;
     if (nextVal) {
-      final ok = await BiometricService.authenticateWithFaceId();
+      final available = await BiometricService.isBiometricAvailable();
+      if (!available) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              backgroundColor: SiparColors.red,
+              behavior: SnackBarBehavior.floating,
+              content: Text(
+                'No se detectó $_biometricLabel configurado en este dispositivo.',
+              ),
+            ),
+          );
+        }
+        return;
+      }
+
+      // Exige validar con el rostro (Face ID) o Huella Digital real antes de activar
+      final ok = await BiometricService.authenticateWithFaceId(
+        strictBiometricOnly: true,
+      );
       if (!ok) return;
     }
+
     await SecureStorageService.setBiometricEnabled(nextVal);
     if (mounted) {
       setState(() => _bioEnabled = nextVal);
@@ -154,15 +180,15 @@ class _PerfilViewState extends State<PerfilView> {
           behavior: SnackBarBehavior.floating,
           content: Text(
             nextVal
-                ? 'Face ID / Biometría activada en Keychain (ISO 27001)'
-                : 'Desbloqueo biométrico desactivado',
+                ? '$_biometricLabel verificado y activado en Keychain (ISO 27001)'
+                : 'Desbloqueo con $_biometricLabel desactivado',
           ),
         ),
       );
     }
   }
 
-  // Modal para Editar Nombre y Facturación (RUC / Razón Social)
+  // Modal para Editar Nombre y Facturación (RUC / Razón Social Cifrados en BD)
   Future<void> _openEditProfileAndBillingSheet(bool isDark) async {
     HapticFeedback.lightImpact();
     final fnCtrl = TextEditingController(text: _firstName);
@@ -240,7 +266,7 @@ class _PerfilViewState extends State<PerfilView> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'Configura tus datos personales y tu RUC para comprobantes electrónicos.',
+                    'Tus datos fiscales se almacenan cifrados en reposo bajo ISO/IEC 27001 (A.8.24).',
                     style: TextStyle(fontSize: 12, color: textSec),
                   ),
                   const SizedBox(height: 16),
@@ -303,40 +329,6 @@ class _PerfilViewState extends State<PerfilView> {
                               final newRuc = rucCtrl.text.trim();
                               final newRaz = razCtrl.text.trim();
 
-                              final prefs =
-                                  await SharedPreferences.getInstance();
-                              await prefs.setString(
-                                'sipar_billing_ruc',
-                                newRuc,
-                              );
-                              await prefs.setString(
-                                'sipar_billing_name',
-                                newRaz,
-                              );
-
-                              try {
-                                await ApiClient.dio.put(
-                                  '/api/v1/users/me',
-                                  data: {
-                                    'first_name': newFn,
-                                    'last_name': newLn,
-                                  },
-                                );
-                              } catch (_) {}
-
-                              final user =
-                                  await SecureStorageService.getUser() ?? {};
-                              user['first_name'] = newFn;
-                              user['last_name'] = newLn;
-                              final token =
-                                  await SecureStorageService.getToken();
-                              if (token != null) {
-                                await SecureStorageService.saveSession(
-                                  token: token,
-                                  user: user,
-                                );
-                              }
-
                               if (mounted) {
                                 setState(() {
                                   if (newFn.isNotEmpty) _firstName = newFn;
@@ -345,15 +337,25 @@ class _PerfilViewState extends State<PerfilView> {
                                   _billingName = newRaz;
                                 });
                               }
+                              await _syncProfileToBackend();
                               if (ctx.mounted) Navigator.pop(ctx);
                             },
-                      child: const Text(
-                        'Guardar Cambios',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w800,
-                          fontSize: 14,
-                        ),
-                      ),
+                      child: saving
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                color: Colors.white,
+                                strokeWidth: 2,
+                              ),
+                            )
+                          : const Text(
+                              'Guardar Cambios Cifrados',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w800,
+                                fontSize: 14,
+                              ),
+                            ),
                     ),
                   ),
                 ],
@@ -365,7 +367,7 @@ class _PerfilViewState extends State<PerfilView> {
     );
   }
 
-  // Modal para Agregar Vehículo Eléctrico al Garaje
+  // Modal para Agregar Vehículo Eléctrico con Confirmación Previa
   Future<void> _openAddVehicleSheet(bool isDark) async {
     HapticFeedback.lightImpact();
     final modelCtrl = TextEditingController();
@@ -560,6 +562,48 @@ class _PerfilViewState extends State<PerfilView> {
                         final kwh =
                             double.tryParse(capCtrl.text.trim()) ?? 60.0;
 
+                        // Confirmación explícita antes de agregar el vehículo
+                        final confirm = await showDialog<bool>(
+                          context: ctx,
+                          builder: (dCtx) => AlertDialog(
+                            backgroundColor: bgSheet,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            title: Text(
+                              '¿Confirmar nuevo vehículo?',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w800,
+                                color: textPrim,
+                              ),
+                            ),
+                            content: Text(
+                              'Se agregará "$model" (Placa: $plate • Conector $connector) a tu garaje sincronizado.',
+                              style: TextStyle(fontSize: 13, color: textSec),
+                            ),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(dCtx, false),
+                                child: Text(
+                                  'Cancelar',
+                                  style: TextStyle(color: textSec),
+                                ),
+                              ),
+                              ElevatedButton(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: SiparColors.green,
+                                  foregroundColor: Colors.white,
+                                ),
+                                onPressed: () => Navigator.pop(dCtx, true),
+                                child: const Text('Sí, agregar'),
+                              ),
+                            ],
+                          ),
+                        );
+
+                        if (confirm != true) return;
+
                         setState(() {
                           _vehicles.add(
                             EvVehicleModel(
@@ -571,7 +615,7 @@ class _PerfilViewState extends State<PerfilView> {
                           );
                           _selectedVehicleIndex = _vehicles.length - 1;
                         });
-                        await _saveGarageToPrefs();
+                        await _syncProfileToBackend();
                         if (ctx.mounted) Navigator.pop(ctx);
                       },
                       child: const Text(
@@ -592,89 +636,194 @@ class _PerfilViewState extends State<PerfilView> {
     );
   }
 
-  // Modal de Preguntas Frecuentes y Soporte OCPP
+  // Confirmación antes de Eliminar un Vehículo del Garaje
+  Future<void> _confirmDeleteVehicle(int idx, bool isDark) async {
+    HapticFeedback.mediumImpact();
+    final v = _vehicles[idx];
+    final bgDialog = isDark ? const Color(0xFF161E2E) : Colors.white;
+    final textPrim = isDark ? Colors.white : SiparColors.dark;
+    final textSec = isDark ? const Color(0xFF94A3B8) : SiparColors.gray;
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: bgDialog,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text(
+          '¿Eliminar vehículo?',
+          style: TextStyle(
+            fontSize: 17,
+            fontWeight: FontWeight.w800,
+            color: textPrim,
+          ),
+        ),
+        content: Text(
+          '¿Estás seguro de eliminar "${v.brandModel}" (Placa: ${v.plate}) de tu garaje?',
+          style: TextStyle(fontSize: 13, color: textSec),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text('Cancelar', style: TextStyle(color: textSec)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: SiparColors.red,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text(
+              'Sí, eliminar',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      setState(() {
+        _vehicles.removeAt(idx);
+        if (_selectedVehicleIndex >= _vehicles.length) {
+          _selectedVehicleIndex = 0;
+        }
+      });
+      await _syncProfileToBackend();
+    }
+  }
+
+  // Modal de Preguntas Frecuentes Conectado en Vivo al Módulo Web (/api/v1/users/faqs)
   void _openFaqSheet(bool isDark) {
     HapticFeedback.lightImpact();
     final bgSheet = isDark ? const Color(0xFF161E2E) : Colors.white;
     final textPrim = isDark ? Colors.white : SiparColors.dark;
     final textSec = isDark ? const Color(0xFF94A3B8) : SiparColors.gray;
 
-    final faqs = [
-      {
-        'q': '¿Cómo inicio una carga en una estación SIPAR?',
-        'a':
-            '1. Conecta la manguera a tu vehículo eléctrico.\n2. En el mapa de la app, selecciona la estación y el número de manguera.\n3. Asegúrate de contar con saldo disponible en tu Wallet y presiona "Iniciar Carga".',
-      },
-      {
-        'q': '¿Qué significa la alerta GroundFailure o EVCommunicationError?',
-        'a':
-            'Por seguridad eléctrica OCPP 1.6J, si el cargador detecta una variación en la puesta a tierra (PE) o desconexión prematura del cable de control (CP), detiene el paso de energía automáticamente sin cobrarte recargos indebidos.',
-      },
-      {
-        'q': '¿Cómo solicito una reversión o reclamo de saldo?',
-        'a':
-            'Desde la pestaña Actividad o contactando a soporte con tu número de transacción (#TRX), el equipo administrativo puede acreditar reembolsos auditados directamente en tu cuenta.',
-      },
-    ];
-
     showModalBottomSheet<void>(
       context: context,
+      isScrollControlled: true,
       backgroundColor: bgSheet,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
       ),
-      builder: (ctx) => Padding(
-        padding: const EdgeInsets.fromLTRB(20, 16, 20, 30),
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Preguntas Frecuentes y Ayuda OCPP',
-                style: TextStyle(
-                  fontSize: 17,
-                  fontWeight: FontWeight.w800,
-                  color: textPrim,
-                ),
-              ),
-              const SizedBox(height: 12),
-              ...faqs.map(
-                (f) => ExpansionTile(
-                  tilePadding: EdgeInsets.zero,
-                  iconColor: SiparColors.green,
-                  collapsedIconColor: textSec,
-                  title: Text(
-                    f['q']!,
-                    style: TextStyle(
-                      fontSize: 13.5,
-                      fontWeight: FontWeight.w700,
-                      color: textPrim,
+      builder: (ctx) => DraggableScrollableSheet(
+        initialChildSize: 0.65,
+        minChildSize: 0.45,
+        maxChildSize: 0.92,
+        expand: false,
+        builder: (_, scrollCtrl) => FutureBuilder(
+          future: ApiClient.dio.get('/api/v1/users/faqs'),
+          builder: (context, snapshot) {
+            final rawList = (snapshot.data?.data as List<dynamic>?) ?? [];
+
+            return ListView(
+              controller: scrollCtrl,
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 30),
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: textSec.withValues(alpha: 0.3),
+                      borderRadius: BorderRadius.circular(99),
                     ),
                   ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
+                    Expanded(
                       child: Text(
-                        f['a']!,
+                        'Preguntas Frecuentes y Ayuda OCPP',
                         style: TextStyle(
-                          fontSize: 12.5,
-                          color: textSec,
-                          height: 1.45,
+                          fontSize: 17,
+                          fontWeight: FontWeight.w800,
+                          color: textPrim,
                         ),
                       ),
                     ),
+                    IconButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      icon: Icon(LucideIcons.x, color: textSec, size: 20),
+                    ),
                   ],
                 ),
-              ),
-            ],
-          ),
+                const SizedBox(height: 8),
+                if (snapshot.connectionState == ConnectionState.waiting)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 40),
+                    child: Center(
+                      child: CircularProgressIndicator(
+                        color: SiparColors.green,
+                      ),
+                    ),
+                  )
+                else if (rawList.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 30),
+                    child: Text(
+                      'No hay preguntas frecuentes publicadas en este momento.',
+                      style: TextStyle(color: textSec, fontSize: 13),
+                    ),
+                  )
+                else
+                  ...rawList.map((item) {
+                    final map = Map<String, dynamic>.from(item as Map);
+                    final q = (map['question'] ?? '').toString();
+                    final a = (map['answer'] ?? '').toString();
+                    final cat = (map['category'] ?? 'General').toString();
+
+                    return ExpansionTile(
+                      tilePadding: EdgeInsets.zero,
+                      iconColor: SiparColors.green,
+                      collapsedIconColor: textSec,
+                      title: Text(
+                        q,
+                        style: TextStyle(
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w700,
+                          color: textPrim,
+                        ),
+                      ),
+                      subtitle: Text(
+                        cat,
+                        style: const TextStyle(
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.w700,
+                          color: SiparColors.green,
+                        ),
+                      ),
+                      children: [
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: Text(
+                              a,
+                              style: TextStyle(
+                                fontSize: 12.5,
+                                color: textSec,
+                                height: 1.45,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    );
+                  }),
+              ],
+            );
+          },
         ),
       ),
     );
   }
 
-  // Confirmación antes de cerrar sesión (ISO 9241-110 Prevención de Errores)
   Future<void> _confirmLogout(bool isDark) async {
     HapticFeedback.mediumImpact();
     final bgDialog = isDark ? const Color(0xFF161E2E) : Colors.white;
@@ -695,7 +844,7 @@ class _PerfilViewState extends State<PerfilView> {
           ),
         ),
         content: Text(
-          'Saldrás de tu cuenta actual. Si tienes Face ID activado, podrás volver a ingresar rápidamente.',
+          'Saldrás de tu cuenta actual. Si tienes $_biometricLabel activado, podrás volver a ingresar rápidamente.',
           style: TextStyle(fontSize: 13, color: textSec),
         ),
         actions: [
@@ -745,7 +894,7 @@ class _PerfilViewState extends State<PerfilView> {
       child: ListView(
         padding: const EdgeInsets.fromLTRB(20, 56, 20, 120),
         children: [
-          // 1. CABECERA DE PERFIL CON AVATAR DE INICIALES Y EDICIÓN
+          // 1. CABECERA DE PERFIL
           Row(
             children: [
               GestureDetector(
@@ -889,6 +1038,7 @@ class _PerfilViewState extends State<PerfilView> {
                   context,
                   isDark: isDark,
                   bioEnabled: _bioEnabled,
+                  biometricLabel: _biometricLabel,
                   userEmail: _email,
                 ),
                 child: Container(
@@ -917,6 +1067,7 @@ class _PerfilViewState extends State<PerfilView> {
               context,
               isDark: isDark,
               bioEnabled: _bioEnabled,
+              biometricLabel: _biometricLabel,
               userEmail: _email,
             ),
             child: Container(
@@ -960,6 +1111,7 @@ class _PerfilViewState extends State<PerfilView> {
                                 ),
                               ),
                             ),
+                            const SizedBox(width: 6),
                             Container(
                               padding: const EdgeInsets.symmetric(
                                 horizontal: 6,
@@ -984,7 +1136,7 @@ class _PerfilViewState extends State<PerfilView> {
                         ),
                         const SizedBox(height: 3),
                         Text(
-                          'Keychain cifrado • Toca para ver tu bitácora de accesos',
+                          'PII y Keychain cifrados • Toca para ver tu bitácora',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(fontSize: 11.5, color: textSec),
@@ -1001,7 +1153,7 @@ class _PerfilViewState extends State<PerfilView> {
 
           const SizedBox(height: 14),
 
-          // 3. ACCESOS RÁPIDOS (EDITAR PERFIL Y ROTAR CONTRASEÑA)
+          // 3. ACCESOS RÁPIDOS
           Row(
             children: [
               Expanded(
@@ -1067,7 +1219,7 @@ class _PerfilViewState extends State<PerfilView> {
 
           const SizedBox(height: 24),
 
-          // 4. MIS VEHÍCULOS ELÉCTRICOS (DINÁMICO)
+          // 4. MIS VEHÍCULOS ELÉCTRICOS (VACÍO POR DEFECTO + CONFIRMACIÓN AL ELIMINAR)
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -1099,118 +1251,151 @@ class _PerfilViewState extends State<PerfilView> {
             ],
           ),
           const SizedBox(height: 10),
-          ...List.generate(_vehicles.length, (idx) {
-            final v = _vehicles[idx];
-            final isPrimary = idx == _selectedVehicleIndex;
-            return GestureDetector(
-              onTap: () {
-                HapticFeedback.selectionClick();
-                setState(() => _selectedVehicleIndex = idx);
-                _saveGarageToPrefs();
-              },
-              child: Container(
-                margin: const EdgeInsets.only(bottom: 10),
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: cardBg,
-                  borderRadius: BorderRadius.circular(18),
-                  border: Border.all(
-                    color: isPrimary ? SiparColors.green : borderCol,
-                    width: isPrimary ? 1.8 : 1.0,
+          if (_vehicles.isEmpty)
+            Container(
+              padding: const EdgeInsets.all(18),
+              decoration: BoxDecoration(
+                color: cardBg,
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: borderCol),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: subtleBg,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(LucideIcons.car, color: textSec, size: 20),
                   ),
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 44,
-                      height: 44,
-                      decoration: BoxDecoration(
-                        color: isPrimary
-                            ? SiparColors.green.withValues(alpha: 0.15)
-                            : subtleBg,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Icon(
-                        LucideIcons.car,
-                        color: isPrimary ? SiparColors.green : textSec,
-                        size: 20,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Flexible(
-                                child: Text(
-                                  v.brandModel,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    fontSize: 14.5,
-                                    fontWeight: FontWeight.w800,
-                                    color: textPrim,
-                                  ),
-                                ),
-                              ),
-                              if (isPrimary) ...[
-                                const SizedBox(width: 8),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 6,
-                                    vertical: 2,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: SiparColors.green.withValues(
-                                      alpha: 0.15,
-                                    ),
-                                    borderRadius: BorderRadius.circular(5),
-                                  ),
-                                  child: const Text(
-                                    'Principal',
-                                    style: TextStyle(
-                                      fontSize: 9.5,
-                                      fontWeight: FontWeight.w800,
-                                      color: SiparColors.green,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ],
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Sin vehículos registrados',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w800,
+                            color: textPrim,
                           ),
-                          const SizedBox(height: 3),
-                          Text(
-                            'Placa: ${v.plate} • ${v.connectorType} • ${v.batteryKwh.toStringAsFixed(1)} kWh',
-                            style: TextStyle(fontSize: 11.5, color: textSec),
-                          ),
-                        ],
-                      ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Toca "+ Agregar auto" para registrar tu vehículo eléctrico.',
+                          style: TextStyle(fontSize: 12, color: textSec),
+                        ),
+                      ],
                     ),
-                    if (_vehicles.length > 1)
-                      IconButton(
-                        onPressed: () {
-                          HapticFeedback.lightImpact();
-                          setState(() {
-                            _vehicles.removeAt(idx);
-                            if (_selectedVehicleIndex >= _vehicles.length) {
-                              _selectedVehicleIndex = 0;
-                            }
-                          });
-                          _saveGarageToPrefs();
-                        },
-                        icon: Icon(
-                          LucideIcons.trash2,
-                          size: 16,
-                          color: textSec,
+                  ),
+                ],
+              ),
+            )
+          else
+            ...List.generate(_vehicles.length, (idx) {
+              final v = _vehicles[idx];
+              final isPrimary = idx == _selectedVehicleIndex;
+              return GestureDetector(
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  setState(() => _selectedVehicleIndex = idx);
+                },
+                child: Container(
+                  margin: const EdgeInsets.only(bottom: 10),
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: cardBg,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(
+                      color: isPrimary ? SiparColors.green : borderCol,
+                      width: isPrimary ? 1.8 : 1.0,
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: isPrimary
+                              ? SiparColors.green.withValues(alpha: 0.15)
+                              : subtleBg,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Icon(
+                          LucideIcons.car,
+                          color: isPrimary ? SiparColors.green : textSec,
+                          size: 20,
                         ),
                       ),
-                  ],
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Flexible(
+                                  child: Text(
+                                    v.brandModel,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 14.5,
+                                      fontWeight: FontWeight.w800,
+                                      color: textPrim,
+                                    ),
+                                  ),
+                                ),
+                                if (isPrimary) ...[
+                                  const SizedBox(width: 8),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 6,
+                                      vertical: 2,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: SiparColors.green.withValues(
+                                        alpha: 0.15,
+                                      ),
+                                      borderRadius: BorderRadius.circular(5),
+                                    ),
+                                    child: const Text(
+                                      'Principal',
+                                      style: TextStyle(
+                                        fontSize: 9.5,
+                                        fontWeight: FontWeight.w800,
+                                        color: SiparColors.green,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              'Placa: ${v.plate} • ${v.connectorType} • ${v.batteryKwh.toStringAsFixed(1)} kWh',
+                              style: TextStyle(fontSize: 11.5, color: textSec),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () => _confirmDeleteVehicle(idx, isDark),
+                        icon: Icon(
+                          LucideIcons.trash2,
+                          size: 17,
+                          color: SiparColors.red.withValues(alpha: 0.8),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            );
-          }),
+              );
+            }),
 
           const SizedBox(height: 20),
 
@@ -1245,8 +1430,10 @@ class _PerfilViewState extends State<PerfilView> {
                   onTap: () => _openEditProfileAndBillingSheet(isDark),
                 ),
                 _buildPrefRow(
-                  icon: LucideIcons.scanFace,
-                  title: 'Desbloqueo con Face ID',
+                  icon: Platform.isIOS
+                      ? LucideIcons.scanFace
+                      : LucideIcons.fingerprint,
+                  title: 'Desbloqueo con $_biometricLabel',
                   trailingChip: _bioEnabled ? 'Activo' : 'Activar',
                   chipActive: _bioEnabled,
                   cardBg: cardBg,
@@ -1279,6 +1466,7 @@ class _PerfilViewState extends State<PerfilView> {
                     context,
                     isDark: isDark,
                     bioEnabled: _bioEnabled,
+                    biometricLabel: _biometricLabel,
                     userEmail: _email,
                   ),
                 ),
