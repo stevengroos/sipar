@@ -185,6 +185,75 @@ def get_transactions(
     return resultado
 
 
+@router.get("/me", response_model=List[TransactionDetailResponse])
+def get_my_transactions(
+    period: Optional[str] = Query("month", description="'today', 'month', o 'all'"),
+    limit: int = Query(50, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(deps.get_current_active_user)
+):
+    """Obtiene el historial optimizado y filtrado exclusivamente para el conductor de la App."""
+    from app.api.v1.endpoints.dashboards import PY_TZ # Reutilizamos tu zona horaria
+    
+    query = db.query(models.Transaction).filter(models.Transaction.user_id == current_user.id)
+    
+    if period == "today":
+        now_py = datetime.now(timezone.utc).astimezone(PY_TZ)
+        start_today = now_py.replace(hour=0, minute=0, second=0, microsecond=0)
+        query = query.filter(models.Transaction.start_time >= start_today.astimezone(timezone.utc))
+    elif period == "month":
+        now_py = datetime.now(timezone.utc).astimezone(PY_TZ)
+        query = query.filter(
+            extract("year", models.Transaction.start_time) == now_py.year,
+            extract("month", models.Transaction.start_time) == now_py.month
+        )
+
+    txs = query.order_by(models.Transaction.id.desc()).limit(limit).all()
+    resultado = []
+
+    for tx in txs:
+        charger = tx.charger
+        address = "Estación SIPAR"
+        if charger and charger.location and isinstance(charger.location, dict):
+            address = charger.location.get("address", "Estación SIPAR")
+
+        resultado.append(TransactionDetailResponse(
+            id=tx.id,
+            status=tx.status or "concluida",
+            connector_id=tx.connector_id or 1,
+            id_tag=tx.id_tag or "APP-SIPAR",
+            unlock_method=tx.unlock_method or "App",
+            start_time=tx.start_time,
+            end_time=tx.end_time,
+            duration_seconds=tx.duration_seconds or 0,
+            idle_seconds=tx.idle_seconds or 0,
+            meter_start=tx.meter_start or 0,
+            meter_stop=tx.meter_stop or 0,
+            kwh_delivered=round(float(tx.kwh_delivered or 0.0), 2),
+            avg_power_kw=round(float(tx.avg_power_kw or 0.0), 3),
+            max_power_kw=round(float(tx.max_power_kw or 0.0), 3),
+            co2_saved_kg=round(float(tx.co2_saved_kg or 0.0), 2),
+            tariff_price_kwh=round(float(tx.tariff_price_kwh or 2500.0), 0),
+            unlock_fee_pyg=round(float(tx.unlock_fee_pyg or 0.0), 0),
+            total_amount_pyg=round(float(tx.total_amount_pyg or 0.0), 0),
+            payment_method=tx.payment_method or "Cartera Digital",
+            ande_applied_rate=round(float(tx.ande_applied_rate or 0.0), 0),
+            ande_energy_cost_pyg=round(float(tx.ande_energy_cost_pyg or 0.0), 0),
+            time_band_label=tx.time_band_label or "Fuera de Punta",
+            telemetry_log=tx.telemetry_log if isinstance(tx.telemetry_log, list) else [],
+            charger_id=charger.id if charger else None,
+            charger_serial=charger.serial_number if charger else "Desconocido",
+            charger_power_kw=float(charger.power_kw) if charger else 0.0,
+            charger_address=address,
+            charger_tension=charger.ande_tension_type if charger and charger.ande_tension_type else "baja",
+            user_name=f"{current_user.first_name or ''} {current_user.last_name or ''}".strip(),
+            user_email=current_user.email,
+            stop_reason=getattr(tx, "stop_reason", "Local") or "Local",
+            error_code=getattr(tx, "error_code", "NoError") or "NoError"
+        ))
+
+    return resultado
+
 # =========================================================================
 # 2. ABRIR RECLAMO / SOLICITUD DE REVERSIÓN (DESDE APP MÓVIL O SOPORTE ADMIN)
 # =========================================================================

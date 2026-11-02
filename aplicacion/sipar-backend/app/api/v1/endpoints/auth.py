@@ -5,6 +5,9 @@ import struct
 import base64
 import secrets
 import re
+import json
+import urllib.request
+import urllib.error
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from urllib.parse import quote
@@ -12,7 +15,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, Depends, HTTPException, Request, Form
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 
 from app.db.session import get_db
 from app.models import models
@@ -56,7 +59,7 @@ def verify_totp_code(secret: str, code: str) -> bool:
     return False
 
 def validate_iso27001_password(password: str):
-    """Valida complejidad de contraseña según controles ISO 27001."""
+    """Valida complejidad de contraseña según controles ISO 27001 A.8.5."""
     if len(password) < 8:
         raise HTTPException(status_code=400, detail="ISO 27001: La contraseña debe tener al menos 8 caracteres.")
     if not re.search(r"[A-Z]", password):
@@ -110,9 +113,40 @@ def get_session_Duration_minutes(db: Session) -> int:
         return 60
     return settings.ACCESS_TOKEN_EXPIRE_MINUTES
 
+def get_default_company_id(db: Session) -> int:
+    company = db.query(models.Company).order_by(models.Company.id.asc()).first()
+    if not company:
+        company = models.Company(name="SIPAR Paraguay", is_active=True)
+        db.add(company)
+        db.commit()
+        db.refresh(company)
+    return company.id
+
+def build_auth_response(db: Session, user: models.User, force_pwd_change: bool = False, force_mfa_setup: bool = False):
+    expire_minutes = get_session_Duration_minutes(db)
+    access_token_expires = timedelta(minutes=expire_minutes)
+    access_token = security.create_access_token(
+        subject=user.id, role=user.role, expires_delta=access_token_expires
+    )
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "mfa_required": False,
+        "must_change_password": force_pwd_change or force_mfa_setup,
+        "session_minutes": expire_minutes,
+        "user": {
+            "id": user.id,
+            "email": user.email,
+            "first_name": user.first_name or "",
+            "last_name": user.last_name or "",
+            "role": user.role,
+            "mfa_enabled": bool(user.mfa_enabled)
+        }
+    }
+
 
 # =====================================================================
-# ESQUEMAS DE PERFIL Y MFA
+# ESQUEMAS DE PERFIL, MFA Y ONBOARDING MÓVIL
 # =====================================================================
 class MFACodeInput(BaseModel):
     code: str
@@ -128,9 +162,23 @@ class ProfileUpdateInput(BaseModel):
     first_name: str
     last_name: str
 
+class MobileOnboardingInput(BaseModel):
+    first_name: str
+    last_name: str
+    email: EmailStr
+    password: str
+    otp_code: Optional[str] = None
+
+class GoogleAuthInput(BaseModel):
+    id_token: Optional[str] = None
+    access_token: Optional[str] = None
+    email: Optional[str] = None
+    first_name: Optional[str] = ""
+    last_name: Optional[str] = ""
+
 
 # =====================================================================
-# ENDPOINTS DE AUTENTICACIÓN Y MI PERFIL
+# 1. LOGIN TRADICIONAL + 2FA TOTP (WEB & APP MÓVIL)
 # =====================================================================
 @router.post("/login")
 def login_access_token(
@@ -144,31 +192,31 @@ def login_access_token(
     1. Bloqueo de cuenta tras 5 intentos fallidos (15 minutos).
     2. Verificación de estado activo/suspendido.
     3. Verificación de Segundo Factor TOTP (2FA) si el usuario lo tiene habilitado.
-    4. Registro de IP, fecha de último acceso y auditoría de seguridad.
+    4. Evaluación de rotación de contraseñas y registro en bitácora de auditoría.
     """
     client_ip = get_client_ip(request)
     now_utc = datetime.now(timezone.utc)
-    user = db.query(models.User).filter(models.User.email == form_data.username.strip()).first()
+    email_clean = form_data.username.strip().lower()
+    user = db.query(models.User).filter(models.User.email.ilike(email_clean)).first()
 
     if not user:
-        log_security_event(db, "LOGIN_FAILED", form_data.username, "Sistema Auth", client_ip, "WARNING", "Intento de login con correo inexistente")
+        log_security_event(db, "LOGIN_FAILED", email_clean, "Sistema Auth", client_ip, "WARNING", "Intento de login con correo inexistente")
         raise HTTPException(status_code=400, detail="Email o contraseña incorrectos.")
 
-    # 1. Verificar si la cuenta está suspendida
     if not user.is_active:
         log_security_event(db, "LOGIN_BLOCKED", user.email, user.email, client_ip, "DANGER", "Intento de acceso en cuenta suspendida", user.id)
         raise HTTPException(status_code=403, detail="Esta cuenta ha sido suspendida por el administrador.")
 
-    # 2. Verificar bloqueo temporal por fuerza bruta (ISO 27001 A.8.5)
-    if user.locked_until and user.locked_until > now_utc:
-        remaining_mins = max(1, int((user.locked_until - now_utc).total_seconds() // 60) + 1)
-        log_security_event(db, "LOGIN_LOCKED", user.email, user.email, client_ip, "DANGER", f"Cuenta bloqueada temporalmente ({remaining_mins} min restantes)", user.id)
-        raise HTTPException(
-            status_code=423,
-            detail=f"Cuenta bloqueada por múltiples intentos fallidos (ISO 27001). Intente nuevamente en {remaining_mins} minutos."
-        )
+    if user.locked_until:
+        locked_dt = user.locked_until.replace(tzinfo=timezone.utc) if user.locked_until.tzinfo is None else user.locked_until
+        if locked_dt > now_utc:
+            remaining_mins = max(1, int((locked_dt - now_utc).total_seconds() // 60) + 1)
+            log_security_event(db, "LOGIN_LOCKED", user.email, user.email, client_ip, "DANGER", f"Cuenta bloqueada temporalmente ({remaining_mins} min restantes)", user.id)
+            raise HTTPException(
+                status_code=423,
+                detail=f"Cuenta bloqueada por múltiples intentos fallidos (ISO 27001). Intente nuevamente en {remaining_mins} minutos."
+            )
 
-    # 3. Verificar contraseña
     if not security.verify_password(form_data.password, user.hashed_password):
         user.failed_login_attempts = (user.failed_login_attempts or 0) + 1
         if user.failed_login_attempts >= 5:
@@ -184,10 +232,8 @@ def login_access_token(
         log_security_event(db, "LOGIN_FAILED", user.email, user.email, client_ip, "WARNING", f"Contraseña incorrecta ({intentos_restantes} intentos restantes)", user.id)
         raise HTTPException(status_code=400, detail=f"Email o contraseña incorrectos. ({intentos_restantes} intentos restantes)")
 
-    # 4. Verificar MFA / 2FA si está activo en la cuenta
     if user.mfa_enabled and user.mfa_secret:
         if not otp_code:
-            # Le indicamos al Frontend que las credenciales son válidas pero falta el segundo factor
             return {
                 "mfa_required": True,
                 "detail": "Ingrese el código de 6 dígitos de su aplicación autenticadora."
@@ -198,31 +244,11 @@ def login_access_token(
             log_security_event(db, "MFA_FAILED", user.email, user.email, client_ip, "WARNING", "Código 2FA TOTP inválido", user.id)
             raise HTTPException(status_code=400, detail="Código de verificación 2FA incorrecto o expirado.")
 
-    # 5. Login exitoso: Reiniciar contadores de fallo y registrar auditoría
-    user.failed_login_attempts = 0
-    user.locked_until = None
-    user.last_login_at = now_utc
-    user.last_login_ip = client_ip
-    db.commit()
-
-    expire_minutes = get_session_Duration_minutes(db)
-    access_token_expires = timedelta(minutes=expire_minutes)
-    access_token = security.create_access_token(
-        subject=user.id, role=user.role, expires_delta=access_token_expires
-    )
-
-    log_security_event(
-        db, "LOGIN_SUCCESS", user.email, "Panel Admin", client_ip, "SUCCESS",
-        f"Inicio de sesión exitoso {'con 2FA' if user.mfa_enabled else 'sin 2FA'}", user.id
-    )
-    
-    # 5. Evaluar Políticas Globales de Configuración ISO 27001 (Rotación de Claves y 2FA Obligatorio)
     sys_config = db.query(models.SystemConfig).first()
     force_pwd_change = bool(user.must_change_password)
     force_mfa_setup = False
 
     if sys_config:
-        # Si la política global exige rotación cada 90 o 180 días, verificamos la antigüedad de la clave
         pwd_policy = (sys_config.security_password or "").lower()
         max_days = 90 if "90" in pwd_policy else (180 if "180" in pwd_policy else None)
         if max_days and user.password_changed_at:
@@ -233,46 +259,193 @@ def login_access_token(
                 force_pwd_change = True
                 user.must_change_password = True
 
-        # Si el 2FA global está activado y el usuario aún no vinculó su Authenticator, lo llevamos a Mi Perfil
         if sys_config.security_2fa and not user.mfa_enabled:
             force_mfa_setup = True
 
-    # 6. Login exitoso: Reiniciar contadores de fallo y registrar auditoría
     user.failed_login_attempts = 0
     user.locked_until = None
     user.last_login_at = now_utc
     user.last_login_ip = client_ip
     db.commit()
 
-    expire_minutes = get_session_Duration_minutes(db)
-    access_token_expires = timedelta(minutes=expire_minutes)
-    access_token = security.create_access_token(
-        subject=user.id, role=user.role, expires_delta=access_token_expires
+    log_security_event(
+        db, "LOGIN_SUCCESS", user.email, "Acceso SIPAR", client_ip, "SUCCESS",
+        f"Inicio de sesión exitoso {'con 2FA' if user.mfa_enabled else 'estándar'}", user.id
     )
+
+    return build_auth_response(db, user, force_pwd_change, force_mfa_setup)
+
+
+# =====================================================================
+# 2. ONBOARDING MÓVIL POR EMAIL (REGISTRO + AUTO-LOGIN ISO 27001)
+# =====================================================================
+@router.post("/mobile/onboarding")
+def mobile_driver_onboarding(
+    data: MobileOnboardingInput,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """
+    Registra un nuevo conductor desde la App Móvil aplicando la política de contraseñas
+    ISO 27001 y devuelve inmediatamente su token JWT para iniciar sesión sin fricción.
+    """
+    client_ip = get_client_ip(request)
+    now_utc = datetime.now(timezone.utc)
+    email_clean = data.email.strip().lower()
+
+    existing = db.query(models.User).filter(models.User.email.ilike(email_clean)).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Este correo electrónico ya está registrado en SIPAR.")
+
+    validate_iso27001_password(data.password)
+
+    new_user = models.User(
+        email=email_clean,
+        first_name=data.first_name.strip(),
+        last_name=data.last_name.strip(),
+        company_id=get_default_company_id(db),
+        role="conductor",
+        is_active=True,
+        hashed_password=security.get_password_hash(data.password),
+        password_changed_at=now_utc,
+        last_login_at=now_utc,
+        last_login_ip=client_ip,
+        must_change_password=False
+    )
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
 
     log_security_event(
-        db, "LOGIN_SUCCESS", user.email, "Panel Admin", client_ip, "SUCCESS",
-        f"Inicio de sesión exitoso {'con 2FA' if user.mfa_enabled else 'sin 2FA'}", user.id
+        db, "MOBILE_ONBOARDING", new_user.email, "App Móvil SIPAR", client_ip, "SUCCESS",
+        "Onboarding móvil completado por correo electrónico con clave verificada ISO 27001", new_user.id
     )
 
-    return {
-        "access_token": access_token,
-        "token_type": "bearer",
-        "mfa_required": False,
-        "must_change_password": force_pwd_change or force_mfa_setup,
-        "user": {
-            "id": user.id,
-            "email": user.email,
-            "first_name": user.first_name,
-            "last_name": user.last_name,
-            "role": user.role,
-            "mfa_enabled": bool(user.mfa_enabled)
-        }
-    }
+    return build_auth_response(db, new_user)
 
+
+# =====================================================================
+# 3. LOGIN / ONBOARDING DIRECTO CON GOOGLE (OAUTH 2.0 / OIDC)
+# =====================================================================
+@router.post("/google")
+def login_or_register_with_google(
+    data: GoogleAuthInput,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """
+    Verifica criptográficamente el token de Google contra oauth2.googleapis.com.
+    Si el usuario no existe, ejecuta el Onboarding automático creando su cuenta;
+    si ya existe, inicia su sesión y audita el evento bajo ISO 27001.
+    """
+    client_ip = get_client_ip(request)
+    now_utc = datetime.now(timezone.utc)
+    google_payload = None
+
+    if data.id_token:
+        verify_url = f"https://oauth2.googleapis.com/tokeninfo?id_token={quote(data.id_token)}"
+        try:
+            with urllib.request.urlopen(verify_url, timeout=8) as response:
+                google_payload = json.loads(response.read().decode("utf-8"))
+        except Exception:
+            raise HTTPException(status_code=401, detail="No se pudo verificar el id_token de Google.")
+    elif data.access_token:
+        req = urllib.request.Request(
+            "https://www.googleapis.com/oauth2/v3/userinfo",
+            headers={"Authorization": f"Bearer {data.access_token}"}
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=8) as response:
+                google_payload = json.loads(response.read().decode("utf-8"))
+        except Exception:
+            raise HTTPException(status_code=401, detail="No se pudo verificar el access_token de Google.")
+    else:
+        raise HTTPException(status_code=400, detail="Se requiere un token válido de Google.")
+
+    email = (google_payload.get("email") or "").strip().lower()
+    if not email:
+        raise HTTPException(status_code=400, detail="La cuenta de Google no proporcionó un correo verificado.")
+
+    given_name = google_payload.get("given_name") or data.first_name or email.split("@")[0]
+    family_name = google_payload.get("family_name") or data.last_name or ""
+
+    user = db.query(models.User).filter(models.User.email.ilike(email)).first()
+    is_new_user = False
+
+    if not user:
+        is_new_user = True
+        random_strong_pwd = f"Ggl!{secrets.token_urlsafe(16)}9aA#"
+        user = models.User(
+            email=email,
+            first_name=given_name.strip(),
+            last_name=family_name.strip(),
+            company_id=get_default_company_id(db),
+            role="conductor",
+            is_active=True,
+            hashed_password=security.get_password_hash(random_strong_pwd),
+            password_changed_at=now_utc,
+            last_login_at=now_utc,
+            last_login_ip=client_ip,
+            must_change_password=False
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+    else:
+        if not user.is_active:
+            log_security_event(db, "LOGIN_BLOCKED", user.email, "App Móvil Google", client_ip, "DANGER", "Intento de acceso Google en cuenta suspendida", user.id)
+            raise HTTPException(status_code=403, detail="Esta cuenta ha sido suspendida por el administrador.")
+        user.failed_login_attempts = 0
+        user.locked_until = None
+        user.last_login_at = now_utc
+        user.last_login_ip = client_ip
+        db.commit()
+
+    log_security_event(
+        db,
+        "GOOGLE_ONBOARDING" if is_new_user else "LOGIN_GOOGLE_SSO",
+        user.email,
+        "App Móvil SIPAR",
+        client_ip,
+        "SUCCESS",
+        "Registro automático con Google OAuth 2.0" if is_new_user else "Inicio de sesión federado con Google OAuth 2.0",
+        user.id
+    )
+
+    return build_auth_response(db, user)
+
+
+# =====================================================================
+# 4. RENOVACIÓN DE SESIÓN CON FACE ID / BIOMETRÍA (ISO 27001 A.8.5)
+# =====================================================================
+@router.post("/biometric-session")
+def refresh_biometric_session(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(deps.get_current_active_user)
+):
+    """
+    Valida el token resguardado en el llavero seguro del dispositivo tras superar
+    Face ID / Touch ID / Huella, emite un JWT fresco y audita el acceso biométrico.
+    """
+    client_ip = get_client_ip(request)
+    current_user.last_login_at = datetime.now(timezone.utc)
+    current_user.last_login_ip = client_ip
+    db.commit()
+
+    log_security_event(
+        db, "LOGIN_BIOMETRIC_FACEID", current_user.email, "App Móvil SIPAR", client_ip,
+        "SUCCESS", "Desbloqueo y renovación de sesión mediante Face ID / Biometría del dispositivo", current_user.id
+    )
+
+    return build_auth_response(db, current_user)
+
+
+# =====================================================================
+# 5. MI PERFIL, MFA Y GESTIÓN DE CONTRASEÑAS
+# =====================================================================
 @router.get("/me", response_model=UserResponse)
 def get_my_profile(current_user: models.User = Depends(deps.get_current_active_user)):
-    """Devuelve toda la información de seguridad y perfil del usuario autenticado."""
     return current_user
 
 @router.put("/me", response_model=UserResponse)
@@ -282,7 +455,6 @@ def update_my_profile(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(deps.get_current_active_user)
 ):
-    """Actualiza nombre y apellido del usuario actual."""
     current_user.first_name = profile_in.first_name.strip()
     current_user.last_name = profile_in.last_name.strip()
     db.commit()
@@ -296,12 +468,11 @@ def setup_mfa(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(deps.get_current_active_user)
 ):
-    """Genera una semilla TOTP y la URI otpauth:// para escanear el código QR desde Mi Perfil."""
     secret = generate_totp_secret()
     current_user.mfa_secret = secret
     db.commit()
 
-    issuer = "SIPAR Admin"
+    issuer = "SIPAR"
     label = quote(f"{issuer}:{current_user.email}")
     otpauth_uri = f"otpauth://totp/{label}?secret={secret}&issuer={quote(issuer)}&algorithm=SHA1&digits=6&period=30"
 
@@ -318,7 +489,6 @@ def enable_mfa(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(deps.get_current_active_user)
 ):
-    """Verifica el código de 6 dígitos y activa formalmente el 2FA en la cuenta."""
     if not current_user.mfa_secret:
         raise HTTPException(status_code=400, detail="Primero debes iniciar la vinculación de 2FA.")
     if not verify_totp_code(current_user.mfa_secret, data.code):
@@ -336,7 +506,6 @@ def disable_mfa(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(deps.get_current_active_user)
 ):
-    """Desactiva el 2FA validando la contraseña actual del usuario."""
     if not security.verify_password(data.password, current_user.hashed_password):
         raise HTTPException(status_code=400, detail="Contraseña incorrecta. No se pudo desactivar el 2FA.")
 
@@ -353,7 +522,6 @@ def change_my_password(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(deps.get_current_active_user)
 ):
-    """Cambia la contraseña validando la anterior y exigiendo complejidad ISO 27001."""
     if not security.verify_password(data.current_password, current_user.hashed_password):
         log_security_event(db, "PASSWORD_CHANGE_FAILED", current_user.email, current_user.email, get_client_ip(request), "WARNING", "Intento de cambio de clave con contraseña actual errónea", current_user.id)
         raise HTTPException(status_code=400, detail="La contraseña actual ingresada es incorrecta.")
