@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:dio/dio.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+
 import '../../core/api_client.dart';
 import '../../core/theme.dart';
 
@@ -11,166 +14,399 @@ class WalletView extends StatefulWidget {
 }
 
 class _WalletViewState extends State<WalletView> {
-  String _filter = 'all';
-  int _balancePyg = 150000;
-
-  List<Map<String, dynamic>> _items = [
-    {
-      'id': 1,
-      'type': 'charge',
-      'title': 'Carga - SIPAR Luque Centro',
-      'date': '06 Sep 2026, 14:30 hs',
-      'amount': -25500,
-      'dispute_status': 'none',
-    },
-    {
-      'id': 2,
-      'type': 'deposit',
-      'title': 'Recarga - Visa ****4092',
-      'date': '05 Sep 2026, 10:15 hs',
-      'amount': 100000,
-      'dispute_status': 'none',
-    },
-    {
-      'id': 3,
-      'type': 'charge',
-      'title': 'Carga - SIPAR Conmebol',
-      'date': '02 Sep 2026, 18:45 hs',
-      'amount': -42000,
-      'dispute_status': 'none',
-    },
-    {
-      'id': 4,
-      'type': 'deposit',
-      'title': 'Recarga - Pago Móvil',
-      'date': '01 Sep 2026, 09:00 hs',
-      'amount': 50000,
-      'dispute_status': 'none',
-    },
-  ];
+  String _filter = 'all'; // 'all' | 'deposits' | 'charges'
+  double _balancePyg = 0.0;
+  bool _isLoading = true;
+  List<Map<String, dynamic>> _items = [];
 
   @override
   void initState() {
     super.initState();
-    _loadRealTransactions();
+    _loadWalletAndTransactions();
   }
 
-  Future<void> _loadRealTransactions() async {
+  Future<void> _loadWalletAndTransactions() async {
+    if (!mounted) return;
+    setState(() => _isLoading = true);
+
     try {
-      final res = await ApiClient.dio.get('/api/v1/transactions/?limit=30');
-      final list = res.data as List<dynamic>;
-      if (list.isEmpty) return;
+      final results = await Future.wait([
+        ApiClient.dio.get('/api/v1/wallet/balance'),
+        ApiClient.dio.get('/api/v1/transactions/me?limit=50'),
+      ]);
 
-      final mapped = <Map<String, dynamic>>[
-        {
-          'id': 9991,
-          'type': 'deposit',
-          'title': 'Recarga - Visa ****4092',
-          'date': 'Recarga de Billetera SIPAR',
-          'amount': 200000,
-          'dispute_status': 'none',
-        },
-      ];
+      final bal =
+          (num.tryParse(results[0].data['balance_pyg']?.toString() ?? '0') ??
+                  0.0)
+              .toDouble();
+      final txList = results[1].data as List<dynamic>? ?? [];
 
-      for (final item in list) {
-        final tx = item as Map<String, dynamic>;
+      final List<Map<String, dynamic>> mapped = [];
+
+      for (final item in txList) {
+        final tx = Map<String, dynamic>.from(item as Map);
         final amt =
-            (double.tryParse(tx['total_amount_pyg']?.toString() ?? '0') ?? 0)
+            (num.tryParse(tx['total_amount_pyg']?.toString() ?? '0') ?? 0)
                 .round();
+        final kwh = num.tryParse(tx['kwh_delivered']?.toString() ?? '0') ?? 0;
+        final trxId = tx['id'];
+        final dateStr = tx['start_time'] != null
+            ? _formatDate(tx['start_time'].toString())
+            : 'Recarga SIPAR';
+
         mapped.add({
-          'id': tx['id'],
+          'id': trxId,
           'type': 'charge',
           'title': 'Carga - ${tx['charger_serial'] ?? "Estación SIPAR"}',
-          'date': '${tx['kwh_delivered'] ?? 0} kWh • #TRX-${tx['id']}',
+          'date': '$kwh kWh • #TRX-$trxId • $dateStr',
           'amount': -amt,
           'dispute_status': tx['dispute_status'] ?? 'none',
         });
       }
 
-      if (mounted) setState(() => _items = mapped);
-    } catch (_) {}
+      if (mounted) {
+        setState(() {
+          _balancePyg = bal;
+          _items = mapped;
+          _isLoading = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
 
-  String _formatPyg(int val) {
-    final s = val.abs().toString();
+  String _formatDate(String isoStr) {
+    try {
+      final dt = DateTime.parse(isoStr).toLocal();
+      return '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year} ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+    } catch (_) {
+      return '';
+    }
+  }
+
+  String _formatPyg(double val) {
+    final s = val.round().abs().toString();
     final reg = RegExp(r'\B(?=(\d{3})+(?!\d))');
     return '${s.replaceAllMapped(reg, (m) => '.')} ₲';
   }
 
-  Future<void> _openTopUpDialog() async {
+  Future<void> _openTopUpDialog(bool isDark) async {
+    HapticFeedback.lightImpact();
     final ctrl = TextEditingController(text: '50000');
-    final added = await showDialog<int>(
+    bool saving = false;
+    String? errorMsg;
+
+    final bgDialog = isDark ? const Color(0xFF161E2E) : Colors.white;
+    final textPrim = isDark ? Colors.white : SiparColors.dark;
+    final textSec = isDark ? const Color(0xFF94A3B8) : SiparColors.gray;
+
+    final added = await showDialog<double>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: Colors.white,
-        title: const Text(
-          'Agregar fondos a tu Wallet',
-          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-        ),
-        content: TextField(
-          controller: ctrl,
-          keyboardType: TextInputType.number,
-          decoration: const InputDecoration(
-            labelText: 'Monto en Guaraníes (₲)',
-            border: OutlineInputBorder(),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          backgroundColor: bgDialog,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
           ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancelar'),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: SiparColors.green,
-              foregroundColor: Colors.white,
+          title: Text(
+            'Agregar fondos a tu Wallet',
+            style: TextStyle(
+              fontWeight: FontWeight.w800,
+              fontSize: 16,
+              color: textPrim,
             ),
-            onPressed: () =>
-                Navigator.pop(ctx, int.tryParse(ctrl.text.trim()) ?? 0),
-            child: const Text('Confirmar Recarga'),
           ),
-        ],
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (errorMsg != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: Text(
+                    errorMsg!,
+                    style: const TextStyle(
+                      color: SiparColors.red,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+              TextField(
+                controller: ctrl,
+                keyboardType: TextInputType.number,
+                style: TextStyle(color: textPrim),
+                decoration: InputDecoration(
+                  labelText: 'Monto en Guaraníes (₲)',
+                  labelStyle: TextStyle(color: textSec),
+                  border: const OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: Text('Cancelar', style: TextStyle(color: textSec)),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: SiparColors.green,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+              onPressed: saving
+                  ? null
+                  : () async {
+                      final val = double.tryParse(ctrl.text.trim()) ?? 0;
+                      if (val <= 0) {
+                        setDialogState(
+                          () => errorMsg = 'Ingresa un monto válido.',
+                        );
+                        return;
+                      }
+                      setDialogState(() => saving = true);
+                      try {
+                        final res = await ApiClient.dio.post(
+                          '/api/v1/wallet/topup',
+                          data: {'amount_pyg': val},
+                        );
+                        final newBal =
+                            (num.tryParse(
+                                      res.data['balance_pyg']?.toString() ??
+                                          '0',
+                                    ) ??
+                                    0)
+                                .toDouble();
+                        if (ctx.mounted) Navigator.pop(ctx, newBal);
+                      } on DioException catch (e) {
+                        setDialogState(() {
+                          saving = false;
+                          errorMsg =
+                              e.response?.data?['detail']?.toString() ??
+                              'Error al procesar recarga.';
+                        });
+                      }
+                    },
+              child: saving
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        color: Colors.white,
+                        strokeWidth: 2,
+                      ),
+                    )
+                  : const Text(
+                      'Confirmar Recarga',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+            ),
+          ],
+        ),
       ),
     );
 
-    if (added != null && added > 0) {
-      setState(() {
-        _balancePyg += added;
-        _items.insert(0, {
-          'id': DateTime.now().millisecondsSinceEpoch,
-          'type': 'deposit',
-          'title': 'Recarga - Visa ****4092',
-          'date': 'Hoy • Acreditación inmediata',
-          'amount': added,
-          'dispute_status': 'none',
-        });
-      });
+    if (added != null && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: SiparColors.green,
+          behavior: SnackBarBehavior.floating,
+          content: Text('¡Fondos acreditados con éxito en tu Wallet!'),
+        ),
+      );
+      _loadWalletAndTransactions();
     }
   }
 
-  Future<void> _openDisputeModal(Map<String, dynamic> tx) async {
+  Future<void> _openTransferDialog(bool isDark) async {
+    HapticFeedback.lightImpact();
+    final emailCtrl = TextEditingController();
+    final amountCtrl = TextEditingController();
+    bool saving = false;
+    String? errorMsg;
+
+    final bgDialog = isDark ? const Color(0xFF161E2E) : Colors.white;
+    final textPrim = isDark ? Colors.white : SiparColors.dark;
+    final textSec = isDark ? const Color(0xFF94A3B8) : SiparColors.gray;
+
+    final success = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          backgroundColor: bgDialog,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          title: Text(
+            'Transferir saldo a otro usuario',
+            style: TextStyle(
+              fontWeight: FontWeight.w800,
+              fontSize: 16,
+              color: textPrim,
+            ),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Envía guaraníes instantáneamente a cualquier conductor SIPAR usando su correo.',
+                style: TextStyle(fontSize: 12, color: textSec),
+              ),
+              const SizedBox(height: 14),
+              if (errorMsg != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: Text(
+                    errorMsg!,
+                    style: const TextStyle(
+                      color: SiparColors.red,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              TextField(
+                controller: emailCtrl,
+                keyboardType: TextInputType.emailAddress,
+                style: TextStyle(color: textPrim),
+                decoration: InputDecoration(
+                  labelText: 'Correo electrónico destinatario',
+                  labelStyle: TextStyle(color: textSec),
+                  border: const OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: amountCtrl,
+                keyboardType: TextInputType.number,
+                style: TextStyle(color: textPrim),
+                decoration: InputDecoration(
+                  labelText: 'Monto en Guaraníes (₲)',
+                  labelStyle: TextStyle(color: textSec),
+                  border: const OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: Text('Cancelar', style: TextStyle(color: textSec)),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: SiparColors.blue,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+              onPressed: saving
+                  ? null
+                  : () async {
+                      final email = emailCtrl.text.trim();
+                      final amount =
+                          double.tryParse(amountCtrl.text.trim()) ?? 0;
+                      if (email.isEmpty || !email.contains('@')) {
+                        setDialogState(
+                          () => errorMsg = 'Ingresa un correo válido.',
+                        );
+                        return;
+                      }
+                      if (amount <= 0) {
+                        setDialogState(
+                          () => errorMsg = 'Ingresa un monto válido.',
+                        );
+                        return;
+                      }
+
+                      setDialogState(() => saving = true);
+                      try {
+                        await ApiClient.dio.post(
+                          '/api/v1/wallet/transfer',
+                          data: {
+                            'recipient_email': email,
+                            'amount_pyg': amount,
+                          },
+                        );
+                        if (ctx.mounted) Navigator.pop(ctx, true);
+                      } on DioException catch (e) {
+                        setDialogState(() {
+                          saving = false;
+                          errorMsg =
+                              e.response?.data?['detail']?.toString() ??
+                              'Error en la transferencia.';
+                        });
+                      }
+                    },
+              child: saving
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        color: Colors.white,
+                        strokeWidth: 2,
+                      ),
+                    )
+                  : const Text(
+                      'Transferir',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (success == true && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: SiparColors.blue,
+          behavior: SnackBarBehavior.floating,
+          content: Text('¡Transferencia realizada con éxito!'),
+        ),
+      );
+      _loadWalletAndTransactions();
+    }
+  }
+
+  Future<void> _openDisputeModal(Map<String, dynamic> tx, bool isDark) async {
+    HapticFeedback.lightImpact();
     final ctrl = TextEditingController();
+    final bgDialog = isDark ? const Color(0xFF161E2E) : Colors.white;
+    final textPrim = isDark ? Colors.white : SiparColors.dark;
+    final textSec = isDark ? const Color(0xFF94A3B8) : SiparColors.gray;
+
     final sent = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: Colors.white,
+        backgroundColor: bgDialog,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Text(
           'Solicitar Reversión (${tx['title']})',
-          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+          style: TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.bold,
+            color: textPrim,
+          ),
         ),
         content: TextField(
           controller: ctrl,
           maxLines: 3,
-          decoration: const InputDecoration(
+          style: TextStyle(color: textPrim),
+          decoration: InputDecoration(
             hintText:
                 'Describe el inconveniente con esta carga para Finanzas SIPAR...',
-            border: OutlineInputBorder(),
+            hintStyle: TextStyle(color: textSec),
+            border: const OutlineInputBorder(),
           ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancelar'),
+            child: Text('Cancelar', style: TextStyle(color: textSec)),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
@@ -197,36 +433,52 @@ class _WalletViewState extends State<WalletView> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           backgroundColor: SiparColors.green,
+          behavior: SnackBarBehavior.floating,
           content: Text('Solicitud de reversión enviada a Finanzas SIPAR.'),
         ),
       );
-      _loadRealTransactions();
+      _loadWalletAndTransactions();
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final isDark = MediaQuery.platformBrightnessOf(context) == Brightness.dark;
+
+    final textPrim = isDark ? const Color(0xFFF8FAFC) : SiparColors.dark;
+    final textSec = isDark ? const Color(0xFF94A3B8) : SiparColors.gray;
+    final cardBg = isDark ? const Color(0xFF18202F) : Colors.white;
+    final borderCol = isDark ? const Color(0xFF2B364B) : Colors.grey.shade100;
+
     final filtered = _items.where((t) {
       if (_filter == 'deposits') return (t['amount'] as int) > 0;
       if (_filter == 'charges') return (t['amount'] as int) < 0;
       return true;
     }).toList();
 
-    return Container(
-      color: Colors.white,
-      padding: const EdgeInsets.fromLTRB(20, 56, 20, 0),
-      child: Column(
+    return RefreshIndicator(
+      color: SiparColors.green,
+      backgroundColor: cardBg,
+      onRefresh: _loadWalletAndTransactions,
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(20, 56, 20, 120),
         children: [
           Container(
             height: 205,
             width: double.infinity,
             padding: const EdgeInsets.all(24),
             decoration: BoxDecoration(
-              color: SiparColors.dark,
+              gradient: isDark
+                  ? const LinearGradient(
+                      colors: [Color(0xFF0F172A), Color(0xFF1E293B)],
+                    )
+                  : const LinearGradient(
+                      colors: [SiparColors.dark, Color(0xFF2D3748)],
+                    ),
               borderRadius: BorderRadius.circular(24),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.16),
+                  color: Colors.black.withValues(alpha: isDark ? 0.4 : 0.16),
                   blurRadius: 24,
                   offset: const Offset(0, 10),
                 ),
@@ -241,10 +493,10 @@ class _WalletViewState extends State<WalletView> {
                     Icon(LucideIcons.leaf, color: SiparColors.green, size: 22),
                     SizedBox(width: 8),
                     Text(
-                      'SIPAR',
+                      'SIPAR WALLET',
                       style: TextStyle(
                         color: Colors.white,
-                        fontSize: 21,
+                        fontSize: 18,
                         fontWeight: FontWeight.w800,
                         letterSpacing: -0.5,
                       ),
@@ -255,22 +507,32 @@ class _WalletViewState extends State<WalletView> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Tu balance:',
+                      'Tu balance disponible:',
                       style: TextStyle(
                         color: Colors.grey.shade300,
-                        fontSize: 15,
+                        fontSize: 13.5,
                         fontWeight: FontWeight.w500,
                       ),
                     ),
                     const SizedBox(height: 4),
-                    Text(
-                      _formatPyg(_balancePyg),
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 34,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
+                    _isLoading
+                        ? const SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                              strokeWidth: 2,
+                            ),
+                          )
+                        : Text(
+                            _formatPyg(_balancePyg),
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 32,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: -0.5,
+                            ),
+                          ),
                   ],
                 ),
               ],
@@ -281,7 +543,7 @@ class _WalletViewState extends State<WalletView> {
             children: [
               Expanded(
                 child: GestureDetector(
-                  onTap: _openTopUpDialog,
+                  onTap: () => _openTopUpDialog(isDark),
                   child: Container(
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     decoration: BoxDecoration(
@@ -317,16 +579,7 @@ class _WalletViewState extends State<WalletView> {
               const SizedBox(width: 14),
               Expanded(
                 child: GestureDetector(
-                  onTap: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        backgroundColor: SiparColors.blue,
-                        content: Text(
-                          'Transferencia entre cuentas SIPAR disponible próximamente.',
-                        ),
-                      ),
-                    );
-                  },
+                  onTap: () => _openTransferDialog(isDark),
                   child: Container(
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     decoration: BoxDecoration(
@@ -365,119 +618,135 @@ class _WalletViewState extends State<WalletView> {
               ),
             ],
           ),
-          const SizedBox(height: 18),
+          const SizedBox(height: 20),
           Container(
             padding: const EdgeInsets.all(4),
             decoration: BoxDecoration(
-              color: const Color(0xFFF1F3F5),
+              color: isDark ? const Color(0xFF161E2E) : const Color(0xFFF1F3F5),
               borderRadius: BorderRadius.circular(999),
             ),
             child: Row(
               children: [
-                _buildSegmentTab('all', 'Todos'),
-                _buildSegmentTab('deposits', 'Depósitos'),
-                _buildSegmentTab('charges', 'Cargos'),
+                _buildSegmentTab('all', 'Todos', isDark),
+                _buildSegmentTab('deposits', 'Depósitos', isDark),
+                _buildSegmentTab('charges', 'Cargos', isDark),
               ],
             ),
           ),
-          const SizedBox(height: 14),
-          Expanded(
-            child: ListView.builder(
-              padding: const EdgeInsets.only(bottom: 110),
-              itemCount: filtered.length,
-              itemBuilder: (context, index) {
-                final t = filtered[index];
-                final amount = t['amount'] as int;
-                final isCharge = amount < 0;
+          const SizedBox(height: 16),
+          if (_isLoading)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 40),
+              child: Center(
+                child: CircularProgressIndicator(color: SiparColors.green),
+              ),
+            )
+          else if (filtered.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 40),
+              child: Center(
+                child: Text(
+                  'No hay movimientos en este filtro.',
+                  style: TextStyle(color: textSec, fontWeight: FontWeight.w600),
+                ),
+              ),
+            )
+          else
+            ...filtered.map((t) {
+              final amount = t['amount'] as int;
+              final isCharge = amount < 0;
 
-                return GestureDetector(
-                  onTap: isCharge ? () => _openDisputeModal(t) : null,
-                  child: Container(
-                    margin: const EdgeInsets.only(bottom: 12),
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(18),
-                      border: Border.all(color: Colors.grey.shade100),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.03),
-                          blurRadius: 12,
-                          offset: const Offset(0, 4),
+              return GestureDetector(
+                onTap: isCharge ? () => _openDisputeModal(t, isDark) : null,
+                child: Container(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: cardBg,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: borderCol),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(
+                          alpha: isDark ? 0.2 : 0.03,
                         ),
-                      ],
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Row(
-                          children: [
-                            Container(
-                              width: 44,
-                              height: 44,
-                              decoration: BoxDecoration(
-                                color: isCharge
-                                    ? const Color(0xFFECFDF5)
-                                    : const Color(0xFFEFF6FF),
-                                shape: BoxShape.circle,
-                              ),
-                              child: Icon(
-                                isCharge
-                                    ? LucideIcons.zap
-                                    : LucideIcons.arrowDown,
-                                color: isCharge
-                                    ? SiparColors.green
-                                    : SiparColors.blue,
-                                size: 20,
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  t['title'].toString(),
-                                  style: const TextStyle(
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.bold,
-                                    color: SiparColors.dark,
-                                  ),
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  t['date'].toString(),
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    color: SiparColors.gray,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                        Text(
-                          '${isCharge ? "-" : "+"} ${_formatPyg(amount)}',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                            color: isCharge
-                                ? SiparColors.dark
-                                : SiparColors.blue,
-                          ),
-                        ),
-                      ],
-                    ),
+                        blurRadius: 12,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
                   ),
-                );
-              },
-            ),
-          ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            width: 44,
+                            height: 44,
+                            decoration: BoxDecoration(
+                              color: isCharge
+                                  ? (isDark
+                                        ? SiparColors.green.withValues(
+                                            alpha: 0.15,
+                                          )
+                                        : const Color(0xFFECFDF5))
+                                  : (isDark
+                                        ? SiparColors.blue.withValues(
+                                            alpha: 0.15,
+                                          )
+                                        : const Color(0xFFEFF6FF)),
+                              shape: BoxShape.circle,
+                            ),
+                            child: Icon(
+                              isCharge
+                                  ? LucideIcons.zap
+                                  : LucideIcons.arrowDown,
+                              color: isCharge
+                                  ? SiparColors.green
+                                  : SiparColors.blue,
+                              size: 20,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                t['title'].toString(),
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.bold,
+                                  color: textPrim,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                t['date'].toString(),
+                                style: TextStyle(fontSize: 12, color: textSec),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                      Text(
+                        '${isCharge ? "-" : "+"} ${_formatPyg(amount.toDouble())}',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                          color: isCharge ? textPrim : SiparColors.blue,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }),
         ],
       ),
     );
   }
 
-  Widget _buildSegmentTab(String key, String label) {
+  Widget _buildSegmentTab(String key, String label, bool isDark) {
     final active = _filter == key;
     return Expanded(
       child: GestureDetector(
@@ -485,7 +754,9 @@ class _WalletViewState extends State<WalletView> {
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 8),
           decoration: BoxDecoration(
-            color: active ? Colors.white : Colors.transparent,
+            color: active
+                ? (isDark ? const Color(0xFF1E293B) : Colors.white)
+                : Colors.transparent,
             borderRadius: BorderRadius.circular(999),
           ),
           child: Text(
@@ -494,7 +765,9 @@ class _WalletViewState extends State<WalletView> {
             style: TextStyle(
               fontSize: 13,
               fontWeight: active ? FontWeight.bold : FontWeight.w600,
-              color: active ? SiparColors.green : SiparColors.gray,
+              color: active
+                  ? SiparColors.green
+                  : (isDark ? const Color(0xFF94A3B8) : SiparColors.gray),
             ),
           ),
         ),

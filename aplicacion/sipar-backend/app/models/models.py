@@ -216,3 +216,23 @@ class FaqItem(Base):
     order_index = Column(Integer, default=1)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+class Wallet(Base):
+    __tablename__ = "wallets"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False, index=True)
+    balance_pyg = Column(Float, default=150000.0) # Saldo actual en Guaraníes
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    user = relationship("User")
+
+class WalletTransfer(Base):
+    __tablename__ = "wallet_transfers"
+    id = Column(Integer, primary_key=True, index=True)
+    sender_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    receiver_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    amount_pyg = Column(Float, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    sender = relationship("User", foreign_keys=[sender_id])
+    receiver = relationship("User", foreign_keys=[receiver_id])

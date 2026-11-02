@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
-from app.api.v1.endpoints import dashboards, auth, chargers, users, ws_ocpp, config, roles, tariffs, store, transactions
+from app.api.v1.endpoints import dashboards, auth, chargers, users, ws_ocpp, config, roles, tariffs, store, transactions, wallet
 
 # ==========================================
 # 1. IMPORTACIONES DE BASE DE DATOS
@@ -77,7 +77,7 @@ def get_application() -> FastAPI:
     application.include_router(tariffs.router, prefix="/api/v1/tariffs", tags=["Tarifas y Cargadores"])
     application.include_router(store.router, prefix="/api/v1/store", tags=["Tienda de Cargadores"])
     application.include_router(transactions.router, prefix="/api/v1/transactions", tags=["Historial de Recargas y ANDE"])
-
+    application.include_router(wallet.router, prefix="/api/v1/wallet", tags=["Billetera"])
     return application
 
 app = get_application()
