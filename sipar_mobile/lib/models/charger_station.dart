@@ -78,6 +78,10 @@ class ChargerStationModel {
   final String address;
   final List<ChargerConnectorModel> connectors;
 
+  // --- NUEVOS CAMPOS ---
+  final bool isPrivate;
+  final int? ownerUserId;
+
   const ChargerStationModel({
     required this.id,
     required this.serialNumber,
@@ -91,6 +95,8 @@ class ChargerStationModel {
     required this.position,
     required this.address,
     required this.connectors,
+    this.isPrivate = false,
+    this.ownerUserId,
   });
 
   bool get hasFault =>
@@ -113,6 +119,30 @@ class ChargerStationModel {
   int estimateKmPerMin({double? connectorKw}) {
     final kw = connectorKw ?? powerKw;
     return (kw * 0.1).round().clamp(1, 35);
+  }
+
+  // --- NUEVO MÉTODO: Cálculo de tiempo estimado ---
+  String calculateEstimatedTime(double walletBalance) {
+    if (walletBalance <= 0 || priceKwh <= 0 || powerKw <= 0) {
+      return "0 min";
+    }
+    // 1. ¿Cuántos kWh puede comprar con el saldo actual?
+    double maxKwh = walletBalance / priceKwh;
+
+    // 2. ¿Cuánto tiempo en horas toma despachar esos kWh a la potencia máxima del cargador?
+    double hours = maxKwh / powerKw;
+
+    int totalMinutes = (hours * 60).floor();
+
+    if (totalMinutes < 60) {
+      return "$totalMinutes min";
+    }
+
+    int h = totalMinutes ~/ 60;
+    int m = totalMinutes % 60;
+
+    if (m == 0) return "${h}h";
+    return "${h}h ${m}m";
   }
 
   /// Cálculo nativo de distancia en línea recta (Haversine) para no depender de latlong2
@@ -167,7 +197,7 @@ class ChargerStationModel {
     final rawConnectors = json['connectors'] as List<dynamic>? ?? [];
     final parsedConnectors =
         rawConnectors
-            .whereType<Map>()
+            .whereType()
             .map(
               (c) =>
                   ChargerConnectorModel.fromJson(Map<String, dynamic>.from(c)),
@@ -216,6 +246,8 @@ class ChargerStationModel {
       position: LatLng(lat, lng),
       address: address,
       connectors: finalConnectors,
+      isPrivate: json['is_private'] == true,
+      ownerUserId: (json['owner_user_id'] as num?)?.toInt(),
     );
   }
 }

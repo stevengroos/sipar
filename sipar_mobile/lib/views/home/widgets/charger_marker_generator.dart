@@ -11,10 +11,23 @@ class ChargerMarkerGenerator {
     required Color statusColor,
     required bool isSelected,
     required bool isDark,
+    bool isPrivate = false, // <--- NUEVO: Indicador de cargador residencial
   }) async {
-    final key = '${label}_${statusColor.hashCode}_${isSelected}_$isDark';
+    // Incorporamos isPrivate a la llave de caché para no cruzar imágenes
+    final key =
+        '${label}_${statusColor.hashCode}_${isSelected}_${isDark}_$isPrivate';
     if (_cache.containsKey(key)) {
       return _cache[key]!;
+    }
+
+    // --- LÓGICA DE COLOR PARA PRIVADOS ---
+    // Si es privado y su color base es el verde de "disponible" (0xFF22C55E),
+    // lo cambiamos a Índigo/Morado para distinguirlo visualmente.
+    // Si está en falla (rojo/naranja), mantenemos el color de falla.
+    Color effectiveStatusColor = statusColor;
+    if (isPrivate &&
+        (statusColor.value == 0xFF22C55E || statusColor == Colors.green)) {
+      effectiveStatusColor = const Color(0xFF8B5CF6); // Purple 500
     }
 
     const double scale = 3.0;
@@ -30,22 +43,27 @@ class ChargerMarkerGenerator {
     final ui.PictureRecorder recorder = ui.PictureRecorder();
     final Canvas canvas = Canvas(recorder);
 
-    // Sombra suave con tinte verde en modo claro
+    // Sombra suave con tinte según el color
     final Paint shadowPaint = Paint()
       ..color = isDark
           ? Colors.black.withValues(alpha: 0.45)
-          : statusColor.withValues(alpha: 0.32)
+          : effectiveStatusColor.withValues(alpha: 0.32)
       ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5.0);
     canvas.drawRRect(
       RRect.fromLTRBR(2, 4, width - 2, pillH + 2, Radius.circular(radius)),
       shadowPaint,
     );
 
-    // En Modo Claro el cuerpo de la píldora es del color ecológico (Verde SIPAR)
-    // En Modo Oscuro el cuerpo es oscuro con borde neón
+    // Fondo principal de la píldora
     final Color bgColor = isDark
-        ? (isSelected ? statusColor : const Color(0xFF18202F))
-        : (isSelected ? const Color(0xFF065F46) : statusColor);
+        ? (isSelected ? effectiveStatusColor : const Color(0xFF18202F))
+        : (isSelected
+              ? (isPrivate
+                    ? const Color(0xFF4C1D95)
+                    : const Color(
+                        0xFF065F46,
+                      )) // Morado oscuro si es privado seleccionado
+              : effectiveStatusColor);
 
     final Paint bgPaint = Paint()..color = bgColor;
     final RRect pillRect = RRect.fromLTRBR(
@@ -57,9 +75,9 @@ class ChargerMarkerGenerator {
     );
     canvas.drawRRect(pillRect, bgPaint);
 
-    // Borde blanco limpio en modo claro para resaltar el verde ecológico
+    // Borde brillante
     final Color borderColor = isDark
-        ? (isSelected ? Colors.white : statusColor)
+        ? (isSelected ? Colors.white : effectiveStatusColor)
         : Colors.white;
 
     final Paint borderPaint = Paint()
@@ -68,35 +86,44 @@ class ChargerMarkerGenerator {
       ..strokeWidth = (isSelected ? 2.4 : 1.8) * scale;
     canvas.drawRRect(pillRect, borderPaint);
 
-    // Círculo interno izquierdo (Rayo)
+    // Círculo interno izquierdo para el icono
     final double dotRadius = (isSelected ? 9.5 : 8.5) * scale;
     final Offset dotCenter = Offset(13.5 * scale, pillH / 2);
     final Paint dotPaint = Paint()
       ..color = isDark
-          ? (isSelected ? Colors.white : statusColor)
+          ? (isSelected ? Colors.white : effectiveStatusColor)
           : Colors.white;
     canvas.drawCircle(dotCenter, dotRadius, dotPaint);
 
-    final TextPainter boltPainter = TextPainter(
+    // Icono (Casa para residenciales, Rayo para públicos)
+    final String iconText = isPrivate ? '🏠' : '⚡';
+    // El emoji de la casa suele renderizarse un poco más grande, así que bajamos 1pt su tamaño
+    final double iconSize =
+        (isSelected ? (isPrivate ? 9.0 : 10.5) : (isPrivate ? 8.0 : 9.5)) *
+        scale;
+
+    final TextPainter iconPainter = TextPainter(
       text: TextSpan(
-        text: '⚡',
+        text: iconText,
         style: TextStyle(
-          fontSize: (isSelected ? 10.5 : 9.5) * scale,
-          color: isDark ? (isSelected ? statusColor : Colors.white) : bgColor,
+          fontSize: iconSize,
+          color: isDark
+              ? (isSelected ? effectiveStatusColor : Colors.white)
+              : bgColor,
         ),
       ),
       textDirection: TextDirection.ltr,
     );
-    boltPainter.layout();
-    boltPainter.paint(
+    iconPainter.layout();
+    iconPainter.paint(
       canvas,
       Offset(
-        dotCenter.dx - boltPainter.width / 2,
-        dotCenter.dy - boltPainter.height / 2,
+        dotCenter.dx - iconPainter.width / 2,
+        dotCenter.dy - iconPainter.height / 2,
       ),
     );
 
-    // Texto de conectores (ej. 2/2) en blanco puro sobre el verde en Modo Claro
+    // Texto de conectores (ej. 2/2)
     final TextPainter textPainter = TextPainter(
       text: TextSpan(
         text: label,

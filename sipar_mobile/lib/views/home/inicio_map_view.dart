@@ -189,6 +189,7 @@ class _InicioMapViewState extends State<InicioMapView> {
         statusColor: _statusColor(ch),
         isSelected: isSelected,
         isDark: isDark,
+        isPrivate: ch.isPrivate, // <--- INYECTAMOS PRIVACIDAD AL MARCADOR
       );
 
       newMarkers.add(
@@ -589,7 +590,10 @@ class _InicioMapViewState extends State<InicioMapView> {
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
                                 Icon(
-                                  LucideIcons.zap,
+                                  st.isPrivate
+                                      ? LucideIcons.home
+                                      : LucideIcons
+                                            .zap, // <--- CAMBIO DE ICONO SEGÚN TIPO
                                   size: 14,
                                   color: palette.isDark
                                       ? stColor
