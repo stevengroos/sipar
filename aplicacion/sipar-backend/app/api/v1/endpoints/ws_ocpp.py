@@ -20,9 +20,7 @@ logger = logging.getLogger("ocpp")
 router = APIRouter()
 
 conexiones_activas = {}
-# Rastrea qué cargadores recibieron orden de parada manual desde el panel Admin
 paradas_solicitadas_admin = set()
-# Rastrea la secuencia de estados OCPP de cada cargador para distinguir PE Error vs CP Error
 ultimo_estado_ocpp = {}
 
 PY_TZ = timezone(timedelta(hours=-3))
@@ -185,8 +183,6 @@ class ChargePointHandler(cp):
         vendor_error = kwargs.get("vendor_error_code") or kwargs.get("info") or ""
         logger.info(f"[{self.id}] Conector {connector_id} -> Estado OCPP: {status} | ErrorCode: {error_code} | Info: {vendor_error}")
         
-        # Guardamos el último estado notificado antes de un posible StopTransaction
-        # para distinguir Falla de Tierra (pasa por 'Finishing') vs Error CP (cae directo a 'Preparing'/'Available')
         prev_state = ultimo_estado_ocpp.get(self.id)
         ultimo_estado_ocpp[self.id] = status
 
@@ -233,9 +229,6 @@ class ChargePointHandler(cp):
                 if active_tx and effective_error != "NoError":
                     active_tx.error_code = effective_error
 
-                # Si justo hace 1 segundo se cerró una transacción por corte de protección (GroundFailure o EVCommunicationError)
-                # y el cargador manda inmediatamente su StatusNotification 'Preparing' con 'NoError' (como a las 10:28:59),
-                # mantenemos visible el error en el panel hasta que el operador inicie otra carga o desconecte la manguera (Available)
                 if (
                     status == "Preparing"
                     and effective_error == "NoError"
@@ -246,7 +239,6 @@ class ChargePointHandler(cp):
                     effective_error = cargador.last_error_code
 
                 if status in ["Charging", "Available"]:
-                    # Al volver a Charging o desconectar a Available, limpiamos el error en vivo
                     if effective_error == "NoError":
                         cargador.last_error_code = "NoError"
 
@@ -335,10 +327,6 @@ class ChargePointHandler(cp):
 
     @on('MeterValues')
     async def on_meter_values(self, connector_id: int, meter_value: list, transaction_id: int = None, **kwargs):
-        """
-        Registra telemetría en tiempo real y corrige la escala de voltaje del firmware WGD
-        (que reporta V/2 = ~112V-116V cuando la tensión real en pantalla es 224V-232V).
-        """
         db = SessionLocal()
         try:
             cargador = db.query(models.Charger).filter(models.Charger.serial_number == self.id).first()
@@ -388,7 +376,6 @@ class ChargePointHandler(cp):
                     elif "SoC" in measurand:
                         current_soc = int(val)
 
-            # Calibración para firmware WGD (Volvo): el ADC envía V/2 (ej. 112V-116V -> 224V-232V reales)
             if 90.0 <= raw_voltage <= 145.0:
                 calibrated_voltage = round(raw_voltage * 2.0, 1)
             else:
@@ -418,6 +405,7 @@ class ChargePointHandler(cp):
                     if conector_db:
                         conector_db.status = "en_uso"
                         conector_db.error_code = "NoError"
+                    # Si no hay potencia ni corriente, acumulamos segundos de inactividad
                     if tx and (current_kw <= 0.05 and current_amps <= 0.5):
                         tx.idle_seconds = (tx.idle_seconds or 0) + 15
 
@@ -494,32 +482,39 @@ class ChargePointHandler(cp):
                 co2_kg = round(kwh * 1.05, 2)
                 price_kwh = float(tx.tariff_price_kwh or 2500.0)
                 unlock_fee = float(tx.unlock_fee_pyg or 0.0)
-                total_pyg = round((kwh * price_kwh) + unlock_fee, 0)
+                
+                # --- CÁLCULO DE TARIFA DE INACTIVIDAD (IDLE FEE) ---
+                idle_fee_per_min = 0.0
+                if cargador and cargador.tariff:
+                    idle_fee_per_min = float(cargador.tariff.idle_fee_per_minute or 0.0)
+                
+                idle_minutes = (tx.idle_seconds or 0) / 60.0
+                idle_fee_total = round(idle_minutes * idle_fee_per_min, 0)
+                
+                total_pyg = round((kwh * price_kwh) + unlock_fee + idle_fee_total, 0)
+                tx.idle_fee_pyg = idle_fee_total
+                tx.total_amount_pyg = total_pyg
+
+                # --- DESCUENTO AUTOMÁTICO EN LA BILLETERA DIGITAL ---
+                if tx.user_id:
+                    wallet = db.query(models.Wallet).filter(models.Wallet.user_id == tx.user_id).first()
+                    if wallet:
+                        wallet.balance_pyg = max(0.0, wallet.balance_pyg - total_pyg)
 
                 ande_rate, ande_cost, band_label = (0.0, 0.0, "Fuera de Punta")
                 if cargador:
                     ande_rate, ande_cost, band_label = calcular_costo_ande(cargador, start_dt, end_dt, kwh)
 
-                # =========================================================================
-                # CLASIFICACIÓN EXACTA SIN LÍMITE DE TIEMPO (SOPORTA CORTE A LOS 6s O 5 MIN)
-                # =========================================================================
                 final_error_code = tx.error_code or "NoError"
 
                 if was_admin_stopped or reason in ["Remote", "UnlockCommand", "DeAuthorized"]:
-                    # 1. El operador detuvo la sesión desde el botón 'Forzar Fin de Carga' (ej. TRX #49)
                     reason = "Remote"
                     final_error_code = "NoError"
                 elif final_error_code == "NoError" and (stop_id_tag == "6868" or pre_stop_state != "Charging"):
-                    # 2. El cargador abortó la carga por sí solo (sin orden del panel Admin),
-                    # ya sea a los 6 segundos (#51, #52, #53) o tras 5 minutos de carga (#50):
                     if pre_stop_state == "Available":
-                        # Al simular Error de Comunicación CP (TRX #52), el cortocircuito en CP
-                        # hace que el cargador pierda detección del vehículo y caiga directo a 'Available'
                         final_error_code = "EVCommunicationError (Fallo de comunicación CP con el vehículo)"
                         reason = "CPCommunicationFault"
                     else:
-                        # Al simular Falla de Tierra PE (TRX #50, #51 y #53), el cargador abre el contactor
-                        # pero sigue detectando el conector enchufado y cae a 'Preparing' o 'Finishing'
                         final_error_code = "GroundFailure (Fallo de puesta a tierra PE detectado)"
                         reason = "GroundFault"
 
@@ -530,7 +525,6 @@ class ChargePointHandler(cp):
                 tx.avg_power_kw = avg_kw
                 tx.max_power_kw = max_kw
                 tx.co2_saved_kg = co2_kg
-                tx.total_amount_pyg = total_pyg
                 tx.ande_applied_rate = ande_rate
                 tx.ande_energy_cost_pyg = ande_cost
                 tx.time_band_label = band_label
@@ -559,7 +553,6 @@ class ChargePointHandler(cp):
         return call_result.StopTransaction(
             id_tag_info={"status": AuthorizationStatus.accepted}
         )
-
 
 @router.websocket("/{charge_point_id}")
 async def ocpp_endpoint(websocket: WebSocket, charge_point_id: str):

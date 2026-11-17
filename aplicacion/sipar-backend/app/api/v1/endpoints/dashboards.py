@@ -8,13 +8,13 @@ from pydantic import BaseModel
 
 from app.db.session import get_db
 from app.models import models
+from app.api import deps
 from app.api.v1.endpoints.ws_ocpp import conexiones_activas
 
 router = APIRouter()
 PY_TZ = timezone(timedelta(hours=-3))
 
 
-# --- ESQUEMAS ENRIQUECIDOS DEL DASHBOARD ---
 class ConnectorSimple(BaseModel):
     id: int
     connector_id: int
@@ -26,12 +26,12 @@ class ConnectorSimple(BaseModel):
         from_attributes = True
 
 class DashboardKpisResponse(BaseModel):
-    recaudacion_mes: float          # Ingreso neto (descontando reembolsos)
-    recaudacion_bruta: float        # Total facturado bruto
-    costo_ande_total: float         # Liquidación ANDE propietarios
-    margen_neto_sipar: float        # Ganancia neta libre
-    reembolsos_total: float         # Total revertido a clientes
-    disputas_pendientes: int        # Reclamos abiertos en Finanzas
+    recaudacion_mes: float
+    recaudacion_bruta: float
+    costo_ande_total: float
+    margen_neto_sipar: float
+    reembolsos_total: float
+    disputas_pendientes: int
     energia_entregada_kwh: float
     co2_ahorrado_kg: float
     usuarios_activos: int
@@ -98,7 +98,6 @@ def get_dashboard_kpis(
     period: str = Query("all", description="'today' | 'month' | 'all'"),
     db: Session = Depends(get_db)
 ):
-    """Retorna los indicadores operativos, financieros (ANDE/Margen) y de salud de red."""
     usuarios_activos = db.query(models.User).filter(models.User.is_active == True).count()
 
     tx_query = apply_period_filter(db.query(models.Transaction), period)
@@ -159,9 +158,23 @@ def get_dashboard_kpis(
 
 
 @router.get("/map-chargers", response_model=List[DashboardChargerMapResponse])
-def get_map_chargers(db: Session = Depends(get_db)):
-    """Retorna la lista de cargadores sincronizada en tiempo real con el motor WebSocket OCPP."""
-    chargers = db.query(models.Charger).filter(models.Charger.is_active == True).order_by(models.Charger.id.asc()).all()
+def get_map_chargers(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(deps.get_current_active_user)
+):
+    """Retorna la lista de cargadores aplicando restricciones de cargadores privados y Multi-Tenant."""
+    query = db.query(models.Charger).filter(models.Charger.is_active == True)
+    
+    is_sipar_admin = current_user.company_id == 1 and (current_user.role or "").lower() in ["superadmin", "admin", "super admin"]
+    
+    if not is_sipar_admin:
+        query = query.filter(
+            (models.Charger.is_private == False) | 
+            (models.Charger.owner_user_id == current_user.id) |
+            (models.Charger.company_id == current_user.company_id)
+        )
+
+    chargers = query.order_by(models.Charger.id.asc()).all()
     
     hubo_cambios = False
     for c in chargers:
@@ -206,7 +219,6 @@ def get_recent_transactions(
     limit: int = Query(8, ge=1, le=30),
     db: Session = Depends(get_db)
 ):
-    """Retorna las últimas transacciones incluyendo estación, estado OCPP y costo ANDE."""
     txs = db.query(models.Transaction).order_by(models.Transaction.id.desc()).limit(limit).all()
     
     result = []
@@ -236,7 +248,6 @@ def get_top_drivers(
     period: str = Query("all", description="'today' | 'month' | 'all'"),
     db: Session = Depends(get_db)
 ):
-    """Retorna el ranking de conductores con mayor consumo, sesiones y ahorro de CO2."""
     base_q = apply_period_filter(db.query(models.Transaction), period)
     top_rows = (
         base_q.with_entities(

@@ -24,7 +24,8 @@ class ChargerCreate(BaseModel):
     power_kw: float
     location: LocationSchema
     company_id: Optional[int] = 1
-    # Parámetros ANDE configurables por cargador
+    is_private: Optional[bool] = False         # <--- NUEVO
+    owner_user_id: Optional[int] = None        # <--- NUEVO
     ande_tension_type: Optional[str] = "baja"
     ande_cost_off_peak: Optional[float] = 0.0
     ande_cost_peak: Optional[float] = 0.0
@@ -40,6 +41,8 @@ class ChargerResponse(BaseModel):
     location: Any
     company_id: int
     is_active: bool
+    is_private: bool = False                   # <--- NUEVO
+    owner_user_id: Optional[int] = None        # <--- NUEVO
     tariff_id: Optional[int] = None
     vendor: Optional[str] = None
     model: Optional[str] = None

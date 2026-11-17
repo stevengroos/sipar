@@ -1,5 +1,5 @@
 # app/models/models.py
-from sqlalchemy import Column, String, Integer, Float, Boolean, ForeignKey, DateTime, JSON, Numeric, DateTime
+from sqlalchemy import Column, String, Integer, Float, Boolean, ForeignKey, DateTime, JSON, Numeric
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from app.db.base_class import Base
@@ -49,18 +49,23 @@ class Charger(Base):
     tariff_id = Column(Integer, ForeignKey("tariffs.id"), nullable=True)
     last_error_code = Column(String(100), default="NoError")
     
+    # --- NUEVOS CAMPOS: CARGADORES RESIDENCIALES / PRIVADOS ---
+    is_private = Column(Boolean, default=False)
+    owner_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    owner = relationship("User", foreign_keys=[owner_user_id])
+    
     # Campos dinámicos de hardware
     vendor = Column(String, nullable=True)
     model = Column(String, nullable=True)
     last_heartbeat = Column(DateTime(timezone=True), nullable=True)
 
-    # --- NUEVOS CAMPOS: COSTO DE ENERGÍA ANDE (Liquidación Propietario) ---
-    ande_tension_type = Column(String(20), default="baja") # 'baja' o 'media'
-    ande_cost_off_peak = Column(Float, default=0.0)        # Gs/kWh Fuera de Punta (o tarifa plana en Baja Tensión)
-    ande_cost_peak = Column(Float, default=0.0)            # Gs/kWh Punta de Carga (ej. 18 a 21 hs)
-    ande_peak_start = Column(String(10), default="18:00")  # Inicio horario punta
-    ande_peak_end = Column(String(10), default="21:00")    # Fin horario punta
-    ande_peak_days = Column(JSON, default=[1, 2, 3, 4, 5, 6]) # Días (1=Lun ... 6=Sáb, 0=Dom)
+    # --- COSTO DE ENERGÍA ANDE (Liquidación Propietario) ---
+    ande_tension_type = Column(String(20), default="baja")
+    ande_cost_off_peak = Column(Float, default=0.0)
+    ande_cost_peak = Column(Float, default=0.0)
+    ande_peak_start = Column(String(10), default="18:00")
+    ande_peak_end = Column(String(10), default="21:00")
+    ande_peak_days = Column(JSON, default=[1, 2, 3, 4, 5, 6])
 
     connectors = relationship("Connector", back_populates="charger", cascade="all, delete-orphan")
     company = relationship("Company")
@@ -78,6 +83,7 @@ class Connector(Base):
     charger = relationship("Charger", back_populates="connectors")
 
 class Transaction(Base):
+    __tablename__ = "transactions"
     id = Column(Integer, primary_key=True, index=True)
     company_id = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=False, index=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
@@ -85,45 +91,39 @@ class Transaction(Base):
     stop_reason = Column(String(100), default="Local")
     error_code = Column(String(100), default="NoError")
     
-    # --- Identificación OCPP y Estado ---
     connector_id = Column(Integer, default=1)
     id_tag = Column(String(100), default="APP-SIPAR")
-    unlock_method = Column(String(50), default="App") # 'App', 'RFID', 'Admin'
-    status = Column(String(30), default="en_curso")   # 'en_curso', 'concluida'
+    unlock_method = Column(String(50), default="App")
+    status = Column(String(30), default="en_curso")
 
-    # --- Tiempos y Franja Horaria ---
     start_time = Column(DateTime(timezone=True), server_default=func.now())
     end_time = Column(DateTime(timezone=True), nullable=True)
-    duration_seconds = Column(Integer, default=0)     # Tiempo total acumulado de carga
-    idle_seconds = Column(Integer, default=0)         # Tiempo de inactividad
+    duration_seconds = Column(Integer, default=0)
+    idle_seconds = Column(Integer, default=0)
+    idle_fee_pyg = Column(Float, default=0.0)          # <--- NUEVO: Cobro por inactividad
 
-    # --- Medidor y Potencia ---
-    meter_start = Column(Integer, default=0)          # Wh iniciales
-    meter_stop = Column(Integer, default=0)           # Wh finales
-    kwh_delivered = Column(Float, default=0.0)        # Energía consumida (kWh)
-    avg_power_kw = Column(Float, default=0.0)         # Potencia media (kW)
-    max_power_kw = Column(Float, default=0.0)         # Potencia máxima (kW)
-    co2_saved_kg = Column(Float, default=0.0)         # CO2 evitado (kg)
+    meter_start = Column(Integer, default=0)
+    meter_stop = Column(Integer, default=0)
+    kwh_delivered = Column(Float, default=0.0)
+    avg_power_kw = Column(Float, default=0.0)
+    max_power_kw = Column(Float, default=0.0)
+    co2_saved_kg = Column(Float, default=0.0)
 
-    # --- Facturación Cliente (SIPAR) ---
-    tariff_price_kwh = Column(Float, default=0.0)     # Precio de venta por kWh aplicado
-    unlock_fee_pyg = Column(Float, default=0.0)       # Tarifa de desbloqueo fija
-    total_amount_pyg = Column(Float, default=0.0)     # Coste total cobrado al cliente (PYG)
+    tariff_price_kwh = Column(Float, default=0.0)
+    unlock_fee_pyg = Column(Float, default=0.0)
+    total_amount_pyg = Column(Float, default=0.0)
     payment_method = Column(String(50), default="Cartera Digital")
 
-    # --- Liquidación Propietario (Costo de Energía ANDE) ---
-    ande_applied_rate = Column(Float, default=0.0)    # Tarifa ANDE ponderada aplicada (Gs/kWh)
-    ande_energy_cost_pyg = Column(Float, default=0.0) # "Costo de Energía" total a reembolsar al propietario (PYG)
-    time_band_label = Column(String(50), default="Fuera de Punta") # 'Fuera de Punta', 'Punta de Carga', 'Mixto'
+    ande_applied_rate = Column(Float, default=0.0)
+    ande_energy_cost_pyg = Column(Float, default=0.0)
+    time_band_label = Column(String(50), default="Fuera de Punta")
 
-    # --- Telemetría para Gráfico de Consumo ---
-    telemetry_log = Column(JSON, default=[])          # Lista de puntos [{time, kwh, kw, soc}]
+    telemetry_log = Column(JSON, default=[])
     
     user = relationship("User")
     charger = relationship("Charger")
     
-    # --- Gestión de Reclamos, Disputas y Reversiones (App Móvil & Finanzas) ---
-    dispute_status = Column(String(30), default="none") # 'none', 'pending', 'refunded', 'rejected'
+    dispute_status = Column(String(30), default="none")
     dispute_reason = Column(String, nullable=True)
     dispute_created_at = Column(DateTime(timezone=True), nullable=True)
     refund_amount_pyg = Column(Float, default=0.0)
@@ -155,6 +155,7 @@ class Tariff(Base):
     name = Column(String, unique=True, index=True)
     price_kwh = Column(Numeric, nullable=False)
     connection_fee = Column(Numeric, default=0)
+    idle_fee_per_minute = Column(Numeric, default=0.0)   # <--- NUEVO: Tarifa por inactividad
     is_active = Column(Boolean, default=True)
 
     chargers = relationship("Charger", back_populates="tariff")
@@ -193,7 +194,6 @@ class StockHistory(Base):
     product = relationship("Product", back_populates="stock_movements")
     user = relationship("User")
     
-    
 class SecurityAuditLog(Base):
     __tablename__ = "security_audit_logs"
     id = Column(Integer, primary_key=True, index=True)
@@ -202,10 +202,9 @@ class SecurityAuditLog(Base):
     action = Column(String(100), nullable=False)
     target = Column(String(150), nullable=True)
     ip_address = Column(String(64), nullable=True)
-    status = Column(String(30), default="SUCCESS") # SUCCESS, WARNING, DANGER
+    status = Column(String(30), default="SUCCESS")
     details = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    
     
 class FaqItem(Base):
     __tablename__ = "faq_items"
@@ -221,7 +220,7 @@ class Wallet(Base):
     __tablename__ = "wallets"
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False, index=True)
-    balance_pyg = Column(Float, default=150000.0) # Saldo actual en Guaraníes
+    balance_pyg = Column(Float, default=150000.0)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     user = relationship("User")

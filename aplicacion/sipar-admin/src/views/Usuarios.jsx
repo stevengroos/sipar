@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { 
   ShieldCheck, UserPlus, CheckCircle2, AlertTriangle, 
   Smartphone, Search, Loader2, X, Save, ShieldAlert, UserX,
-  Lock, Unlock, KeyRound, History, Download, Globe, Clock, RotateCcw
+  Lock, Unlock, KeyRound, History, Download, Building, RotateCcw
 } from 'lucide-react';
 import api from '../api/axios';
 
@@ -25,6 +25,7 @@ export default function Usuarios() {
     first_name: '',
     last_name: '',
     email: '',
+    company_id: 1, // <--- NUEVO: Empresa predeterminada (SIPAR = 1)
     role: 'operador',
     password: '',
     must_change_password: true,
@@ -64,7 +65,7 @@ export default function Usuarios() {
 
   const openCreateModal = () => {
     setFormData({
-      id: null, first_name: '', last_name: '', email: '', role: 'operador',
+      id: null, first_name: '', last_name: '', email: '', company_id: 1, role: 'operador',
       password: '', must_change_password: true, is_active: true
     });
     setIsModalOpen(true);
@@ -76,6 +77,7 @@ export default function Usuarios() {
       first_name: user.first_name || '',
       last_name: user.last_name || '',
       email: user.email || '',
+      company_id: user.company_id || 1, // <--- NUEVO
       role: user.role || 'operador',
       password: '',
       must_change_password: Boolean(user.must_change_password),
@@ -94,6 +96,7 @@ export default function Usuarios() {
         first_name: formData.first_name,
         last_name: formData.last_name,
         email: formData.email,
+        company_id: parseInt(formData.company_id) || 1, // <--- NUEVO
         role: formData.role,
         password: formData.password,
         must_change_password: formData.must_change_password,
@@ -359,17 +362,14 @@ export default function Usuarios() {
                 <thead>
                   <tr className="bg-white dark:bg-sipar-dark border-b border-gray-100 dark:border-gray-800 text-[10px] uppercase font-bold text-gray-400 tracking-wider">
                     <th className="px-5 py-3.5">Usuario / Correo</th>
+                    <th className="px-5 py-3.5">Empresa Tenant (B2B)</th>
                     <th className="px-5 py-3.5">Rol & Estado MFA</th>
-                    <th className="px-5 py-3.5">Último Acceso & Clave</th>
                     <th className="px-5 py-3.5 text-right">Acciones</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50 dark:divide-gray-800 text-xs">
                   {filteredUsers.map(user => {
                     const isLocked = user.locked_until && new Date(user.locked_until).getTime() > Date.now();
-                    const pwdDays = user.password_changed_at
-                      ? Math.max(0, Math.floor((Date.now() - new Date(user.password_changed_at).getTime()) / 86400000))
-                      : 0;
 
                     return (
                       <tr key={user.id} className={`hover:bg-gray-50/50 dark:hover:bg-gray-800/40 transition ${!user.is_active && 'opacity-60'}`}>
@@ -385,42 +385,34 @@ export default function Usuarios() {
                             )}
                             {isLocked && (
                               <span className="bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-400 text-[9px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
-                                <Lock className="w-2.5 h-2.5" /> Bloqueado (Fuerza Bruta)
+                                <Lock className="w-2.5 h-2.5" /> Bloqueado
                               </span>
                             )}
                           </div>
                           <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">{user.email}</p>
                         </td>
 
+                        {/* COLUMNA EMPRESA TENANT B2B */}
                         <td className="px-5 py-4">
-                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold border mb-1.5 inline-block capitalize ${
-                            user.role === 'superadmin'
-                              ? 'bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 border-purple-200 dark:border-purple-800'
-                              : 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-800'
-                          }`}>
+                          <span className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-orange-50 dark:bg-orange-950/30 text-sipar-orange border border-orange-200 dark:border-orange-800 flex items-center gap-1 w-max">
+                            <Building className="w-3 h-3" /> {user.company_id === 1 ? 'SIPAR (Principal)' : `Empresa #${user.company_id}`}
+                          </span>
+                        </td>
+
+                        <td className="px-5 py-4">
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold border mb-1.5 inline-block capitalize bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 border-blue-200">
                             {user.role}
                           </span>
                           <br />
                           {user.mfa_enabled ? (
                             <span className="text-[10px] text-green-600 dark:text-green-400 font-bold flex items-center gap-1">
-                              <CheckCircle2 className="w-3 h-3" /> 2FA TOTP Activo
+                              <CheckCircle2 className="w-3 h-3" /> 2FA Activo
                             </span>
                           ) : (
                             <span className="text-[10px] text-amber-500 font-semibold flex items-center gap-1">
-                              <AlertTriangle className="w-3 h-3" /> Sin 2FA vinculado
+                              <AlertTriangle className="w-3 h-3" /> Sin 2FA
                             </span>
                           )}
-                        </td>
-
-                        <td className="px-5 py-4">
-                          <p className="text-[11px] font-semibold text-sipar-dark dark:text-gray-200">
-                            {user.last_login_at
-                              ? new Date(user.last_login_at).toLocaleString('es-PY', { dateStyle: 'short', timeStyle: 'short' })
-                              : 'Sin ingresos'}
-                          </p>
-                          <p className="text-[10px] text-gray-400 font-mono mt-0.5">
-                            IP: {user.last_login_ip || 'N/A'} • Clave: {pwdDays}d
-                          </p>
                         </td>
 
                         <td className="px-5 py-4 text-right">
@@ -428,15 +420,14 @@ export default function Usuarios() {
                             {(isLocked || !user.is_active) && (
                               <button
                                 onClick={() => handleUnlockUser(user)}
-                                className="px-2.5 py-1.5 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-600 dark:text-emerald-400 rounded-md text-[11px] font-bold hover:bg-emerald-500 hover:text-white transition flex items-center gap-1"
-                                title="Desbloquear / Reactivar Cuenta"
+                                className="px-2.5 py-1.5 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 text-emerald-600 rounded-md text-[11px] font-bold hover:bg-emerald-500 hover:text-white transition flex items-center gap-1"
                               >
                                 <Unlock className="w-3 h-3" /> Desbloquear
                               </button>
                             )}
                             <button
                               onClick={() => openEditModal(user)}
-                              className="px-2.5 py-1.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-sipar-dark dark:text-gray-200 rounded-md text-[11px] font-bold hover:bg-gray-50 dark:hover:bg-gray-700 hover:text-sipar-orange shadow-sm transition"
+                              className="px-2.5 py-1.5 bg-white dark:bg-gray-800 border border-gray-200 text-sipar-dark dark:text-gray-200 rounded-md text-[11px] font-bold hover:bg-gray-50 shadow-sm transition"
                             >
                               Gestionar
                             </button>
@@ -467,10 +458,10 @@ export default function Usuarios() {
                 </thead>
                 <tbody className="divide-y divide-gray-50 dark:divide-gray-800">
                   {appUsers.map(user => (
-                    <tr key={user.id} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/40 transition">
+                    <tr key={user.id} className="hover:bg-gray-50/50 transition">
                       <td className="px-5 py-4">
                         <p className="font-bold text-[13px] text-sipar-dark dark:text-white">{user.first_name} {user.last_name}</p>
-                        <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">{user.email}</p>
+                        <p className="text-[11px] text-gray-500 mt-0.5">{user.email}</p>
                       </td>
                       <td className="px-5 py-4 text-right">
                         <span className="font-bold text-emerald-600 dark:text-emerald-400 text-[13px]">
@@ -493,14 +484,9 @@ export default function Usuarios() {
               <h3 className="text-base font-bold text-white flex items-center gap-2">
                 <History className="w-5 h-5 text-sipar-orange" /> Bitácora de Auditoría de Seguridad (ISO/IEC 27001 A.8.15)
               </h3>
-              <p className="text-xs text-gray-400 mt-0.5">
-                Registro cronológico inmutable de inicios de sesión, bloqueos, cambios de privilegios y configuración de MFA.
-              </p>
+              <p className="text-xs text-gray-400 mt-0.5">Registro cronológico inmutable de accesos y seguridad.</p>
             </div>
-            <button
-              onClick={exportAuditLogsCSV}
-              className="bg-sipar-orange hover:bg-orange-600 text-white text-xs font-bold px-4 py-2 rounded-xl flex items-center gap-2 transition"
-            >
+            <button onClick={exportAuditLogsCSV} className="bg-sipar-orange text-white text-xs font-bold px-4 py-2 rounded-xl flex items-center gap-2">
               <Download className="w-4 h-4" /> Exportar Auditoría CSV
             </button>
           </div>
@@ -508,43 +494,26 @@ export default function Usuarios() {
           <div className="overflow-x-auto max-h-[520px] overflow-y-auto hide-scroll">
             <table className="w-full text-left border-collapse text-xs">
               <thead>
-                <tr className="bg-gray-50 dark:bg-gray-900/60 border-b border-gray-100 dark:border-gray-800 text-[10px] uppercase font-bold text-gray-400">
+                <tr className="bg-gray-50 dark:bg-gray-900/60 border-b text-[10px] uppercase font-bold text-gray-400">
                   <th className="p-4 pl-6">Fecha & Hora</th>
                   <th className="p-4">Actor / Cuenta</th>
                   <th className="p-4">Evento ISO 27001</th>
                   <th className="p-4">Objetivo</th>
-                  <th className="p-4">Dirección IP</th>
-                  <th className="p-4 pr-6">Detalle del Evento</th>
+                  <th className="p-4">IP</th>
+                  <th className="p-4 pr-6">Detalle</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+              <tbody className="divide-y">
                 {auditLogs.map(log => (
-                  <tr key={log.id} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/40">
-                    <td className="p-4 pl-6 font-mono text-[11px] text-gray-500 dark:text-gray-400">
-                      {log.created_at ? new Date(log.created_at).toLocaleString('es-PY', { dateStyle: 'short', timeStyle: 'medium' }) : 'N/A'}
-                    </td>
+                  <tr key={log.id} className="hover:bg-gray-50/50">
+                    <td className="p-4 pl-6 font-mono text-[11px] text-gray-500">{log.created_at ? new Date(log.created_at).toLocaleString('es-PY') : 'N/A'}</td>
                     <td className="p-4 font-bold text-sipar-dark dark:text-white">{log.actor_email}</td>
-                    <td className="p-4">
-                      <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                        log.status === 'SUCCESS'
-                          ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'
-                          : log.status === 'WARNING'
-                          ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400'
-                          : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
-                      }`}>
-                        {log.action}
-                      </span>
-                    </td>
-                    <td className="p-4 text-gray-600 dark:text-gray-300 font-semibold">{log.target}</td>
+                    <td className="p-4"><span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-green-100 text-green-700">{log.action}</span></td>
+                    <td className="p-4 font-semibold">{log.target}</td>
                     <td className="p-4 font-mono text-[11px] text-gray-500">{log.ip_address}</td>
-                    <td className="p-4 pr-6 text-gray-600 dark:text-gray-300">{log.details}</td>
+                    <td className="p-4 pr-6">{log.details}</td>
                   </tr>
                 ))}
-                {auditLogs.length === 0 && (
-                  <tr>
-                    <td colSpan="6" className="p-8 text-center text-gray-400">Sin eventos registrados aún.</td>
-                  </tr>
-                )}
               </tbody>
             </table>
           </div>
@@ -553,97 +522,75 @@ export default function Usuarios() {
 
       {/* ================= MODAL: CREAR / EDITAR USUARIO INTERNO ================= */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-sipar-dark/60 backdrop-blur-sm p-4 animate-[fadeIn_0.2s_ease-out]">
-          <div className="bg-white dark:bg-sipar-dark rounded-[20px] w-full max-w-lg shadow-2xl flex flex-col overflow-hidden border border-gray-200 dark:border-gray-800 animate-[slideUp_0.3s_ease-out] transition-colors">
-            <div className="px-6 py-5 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center bg-gray-50 dark:bg-gray-800/50">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-sipar-dark/60 backdrop-blur-sm p-4">
+          <div className="bg-white dark:bg-sipar-dark rounded-[20px] w-full max-w-lg shadow-2xl flex flex-col overflow-hidden border border-gray-200 dark:border-gray-800">
+            <div className="px-6 py-5 border-b flex justify-between items-center bg-gray-50 dark:bg-gray-800">
               <h2 className="text-lg font-bold text-sipar-dark dark:text-white flex items-center gap-2">
-                <ShieldAlert className="w-5 h-5 text-sipar-orange" /> {formData.id ? 'Gestionar Identidad & Privilegios' : 'Invitar al Equipo (ISO 27001)'}
+                <ShieldAlert className="w-5 h-5 text-sipar-orange" /> {formData.id ? 'Gestionar Identidad & Privilegios' : 'Invitar al Equipo (Multi-Tenant)'}
               </h2>
-              <button onClick={() => setIsModalOpen(false)} className="text-gray-400 hover:text-red-500 transition"><X className="w-5 h-5" /></button>
+              <button onClick={() => setIsModalOpen(false)} className="text-gray-400 hover:text-red-500"><X className="w-5 h-5" /></button>
             </div>
+            
             <div className="p-6">
               <form onSubmit={handleSubmitUser} className="space-y-4">
                 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5">Nombre</label>
-                    <input type="text" required value={formData.first_name} onChange={e => setFormData({...formData, first_name: e.target.value})} className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg text-sm text-sipar-dark dark:text-white font-bold bg-white dark:bg-gray-900" />
+                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Nombre</label>
+                    <input type="text" required value={formData.first_name} onChange={e => setFormData({...formData, first_name: e.target.value})} className="w-full px-4 py-2 border rounded-lg text-sm bg-white dark:bg-gray-900 text-sipar-dark dark:text-white font-bold" />
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5">Apellido</label>
-                    <input type="text" required value={formData.last_name} onChange={e => setFormData({...formData, last_name: e.target.value})} className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg text-sm text-sipar-dark dark:text-white font-bold bg-white dark:bg-gray-900" />
+                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Apellido</label>
+                    <input type="text" required value={formData.last_name} onChange={e => setFormData({...formData, last_name: e.target.value})} className="w-full px-4 py-2 border rounded-lg text-sm bg-white dark:bg-gray-900 text-sipar-dark dark:text-white font-bold" />
                   </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Correo Corporativo</label>
+                  <input type="email" required value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} className="w-full px-4 py-2 border rounded-lg text-sm bg-white dark:bg-gray-900 text-sipar-dark dark:text-white font-bold" />
+                </div>
+
+                {/* --- NUEVO: ASIGNACIÓN DE EMPRESA TENANT B2B --- */}
+                <div>
+                  <label className="block text-xs font-bold text-sipar-orange uppercase mb-1 flex items-center gap-1">
+                    <Building className="w-3.5 h-3.5" /> Empresa Asignada (Tenant B2B)
+                  </label>
+                  <select 
+                    value={formData.company_id} 
+                    onChange={e => setFormData({...formData, company_id: e.target.value})}
+                    className="w-full border rounded-xl px-3 py-2 text-xs bg-white dark:bg-gray-900 text-sipar-dark dark:text-white font-bold"
+                  >
+                    <option value={1}>SIPAR Paraguay (Acceso Total Red)</option>
+                    <option value={2}>Empresa Externa / B2B (Vista Aislada)</option>
+                  </select>
+                  <p className="text-[10px] text-gray-400 mt-1">Si pertenece a una empresa externa, solo podrá ver los cargadores asignados a su tenant.</p>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5">Correo Corporativo</label>
-                    <input type="email" required value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg text-sm text-sipar-dark dark:text-white font-bold bg-white dark:bg-gray-900" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5">Rol RBAC</label>
-                    <select value={formData.role} onChange={e => setFormData({...formData, role: e.target.value})} className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg text-sm text-sipar-dark dark:text-white font-bold bg-white dark:bg-gray-900">
+                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Rol RBAC</label>
+                    <select value={formData.role} onChange={e => setFormData({...formData, role: e.target.value})} className="w-full px-4 py-2 border rounded-lg text-sm bg-white dark:bg-gray-900 text-sipar-dark dark:text-white font-bold">
                       <option value="superadmin">Super Administrador</option>
                       <option value="admin">Administrador</option>
                       <option value="operador">Operador (Soporte)</option>
                     </select>
                   </div>
-                </div>
-
-                <div className="bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-800/50 rounded-xl p-4">
-                  <label className="block text-[11px] font-bold text-red-600 dark:text-red-400 uppercase tracking-wide mb-1.5 flex items-center gap-1.5">
-                    <ShieldAlert className="w-3.5 h-3.5" /> {formData.id ? 'Forzar Reseteo de Contraseña (Opcional)' : 'Contraseña Inicial (Política ISO 27001)'}
-                  </label>
-                  <input
-                    type="text"
-                    required={!formData.id}
-                    placeholder={formData.id ? "Dejar vacío para mantener la actual..." : "Mín. 8 caract., Mayús, Minús, Núm y Símbolo (Ej. Sipar2026!)"}
-                    value={formData.password}
-                    onChange={e => setFormData({...formData, password: e.target.value})}
-                    className="w-full px-3.5 py-2 border border-red-200 dark:border-red-800 rounded-lg text-xs text-sipar-dark dark:text-white bg-white dark:bg-gray-900"
-                  />
-                  <label className="flex items-center gap-2 mt-2.5 text-xs text-gray-600 dark:text-gray-300 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={formData.must_change_password}
-                      onChange={e => setFormData({...formData, must_change_password: e.target.checked})}
-                      className="rounded text-sipar-orange focus:ring-sipar-orange"
-                    />
-                    Exigir cambio de contraseña en el próximo inicio de sesión
-                  </label>
-                </div>
-
-                {/* Si el usuario tiene 2FA activo, permitir al SuperAdmin resetearlo en caso de pérdida de celular */}
-                {formData.id && selectedUser?.mfa_enabled && (
-                  <div className="p-3.5 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/60 flex items-center justify-between text-xs">
-                    <div>
-                      <p className="font-bold text-amber-800 dark:text-amber-300">2FA TOTP Vinculado</p>
-                      <p className="text-[11px] text-amber-700 dark:text-amber-400">¿El usuario perdió o cambió su teléfono?</p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => handleResetUserMfa(selectedUser)}
-                      className="px-3 py-1.5 bg-white dark:bg-gray-800 border border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300 font-bold rounded-lg hover:bg-amber-100 transition flex items-center gap-1"
-                    >
-                      <RotateCcw className="w-3.5 h-3.5" /> Resetear 2FA
-                    </button>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Contraseña Inicial</label>
+                    <input type="text" placeholder={formData.id ? "Dejar vacío..." : "Sipar2026!"} value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} className="w-full px-3.5 py-2 border rounded-lg text-xs bg-white dark:bg-gray-900 text-sipar-dark dark:text-white" />
                   </div>
-                )}
+                </div>
 
-                <div className="flex justify-between items-center gap-3 pt-2">
+                <div className="flex justify-between items-center pt-3">
                   {formData.id && (
-                    <button
-                      type="button"
-                      onClick={() => setIsDeleteModalOpen(true)}
-                      className="text-red-500 text-xs font-bold hover:underline flex items-center gap-1.5"
-                    >
-                      <UserX className="w-4 h-4" /> Suspender Cuenta
+                    <button type="button" onClick={() => setIsDeleteModalOpen(true)} className="text-red-500 text-xs font-bold hover:underline flex items-center gap-1">
+                      <UserX className="w-4 h-4" /> Suspender
                     </button>
                   )}
                   <div className={`flex gap-3 ${!formData.id && 'w-full'}`}>
-                    <button type="button" onClick={() => setIsModalOpen(false)} className={`py-2.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 font-bold rounded-xl text-xs ${!formData.id ? 'flex-1' : 'px-5'}`}>Cancelar</button>
-                    <button type="submit" disabled={isSubmitting} className={`py-2.5 bg-sipar-orange hover:bg-orange-600 text-white font-bold rounded-xl shadow-md text-xs flex items-center justify-center gap-2 disabled:opacity-70 ${!formData.id ? 'flex-1' : 'px-6'}`}>
-                      {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Save className="w-4 h-4" /> {formData.id ? 'Guardar Cambios' : 'Crear Usuario'}</>}
+                    <button type="button" onClick={() => setIsModalOpen(false)} className={`py-2.5 bg-gray-100 dark:bg-gray-800 text-gray-600 font-bold rounded-xl text-xs ${!formData.id ? 'flex-1' : 'px-5'}`}>Cancelar</button>
+                    <button type="submit" disabled={isSubmitting} className={`py-2.5 bg-sipar-orange hover:bg-orange-600 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-2 ${!formData.id ? 'flex-1' : 'px-6'}`}>
+                      {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Save className="w-4 h-4" /> Guardar</>}
                     </button>
                   </div>
                 </div>
@@ -654,22 +601,15 @@ export default function Usuarios() {
         </div>
       )}
 
-      {/* MODAL: CONFIRMAR SUSPENSIÓN */}
+      {/* MODAL SUSPENDER */}
       {isDeleteModalOpen && (
-        <div className="fixed inset-0 z-[150] flex items-center justify-center bg-sipar-dark/60 backdrop-blur-sm animate-[fadeIn_0.15s_ease-out]">
-          <div className="bg-white dark:bg-sipar-dark rounded-[20px] w-full max-w-sm shadow-2xl overflow-hidden p-6 text-center border border-gray-200 dark:border-gray-800">
-            <div className="w-16 h-16 bg-red-50 dark:bg-red-900/20 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-100 dark:border-red-800/40">
-              <UserX className="w-8 h-8 text-red-500" />
-            </div>
-            <h3 className="font-bold text-lg text-sipar-dark dark:text-white mb-2">¿Suspender Cuenta?</h3>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
-              El usuario perderá inmediatamente el acceso al panel administrativo. Su historial y registros de auditoría ISO 27001 se conservarán intactos.
-            </p>
-            <div className="flex gap-3">
-              <button onClick={() => setIsDeleteModalOpen(false)} className="flex-1 py-2.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 font-bold rounded-xl text-sm">Cancelar</button>
-              <button onClick={handleDeleteConfirm} disabled={isSubmitting} className="flex-1 py-2.5 bg-red-500 text-white font-bold rounded-xl hover:bg-red-600 transition flex items-center justify-center gap-2 text-sm shadow-sm">
-                {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Sí, suspender'}
-              </button>
+        <div className="fixed inset-0 z-[150] flex items-center justify-center bg-sipar-dark/60 backdrop-blur-sm">
+          <div className="bg-white dark:bg-sipar-dark rounded-[20px] w-full max-w-sm p-6 text-center border">
+            <UserX className="w-10 h-10 text-red-500 mx-auto mb-3" />
+            <h3 className="font-bold text-lg mb-2">¿Suspender Cuenta?</h3>
+            <div className="flex gap-3 mt-4">
+              <button onClick={() => setIsDeleteModalOpen(false)} className="flex-1 py-2 bg-gray-100 rounded-xl text-xs font-bold">Cancelar</button>
+              <button onClick={handleDeleteConfirm} className="flex-1 py-2 bg-red-500 text-white rounded-xl text-xs font-bold">Sí, suspender</button>
             </div>
           </div>
         </div>

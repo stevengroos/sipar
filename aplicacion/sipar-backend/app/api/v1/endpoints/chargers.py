@@ -14,8 +14,16 @@ def get_chargers(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(deps.get_current_active_user)
 ):
-    """Obtiene la lista de todos los cargadores activos y sincroniza su estado real en vivo."""
-    cargadores = db.query(models.Charger).filter(models.Charger.is_active == True).order_by(models.Charger.id.desc()).all()
+    query = db.query(models.Charger).filter(models.Charger.is_active == True)
+    
+    # Aislamiento Multi-Tenant B2B y visibilidad de cargadores privados propios
+    if current_user.company_id != 1:
+        query = query.filter(
+            (models.Charger.company_id == current_user.company_id) | 
+            (models.Charger.owner_user_id == current_user.id)
+        )
+        
+    cargadores = query.order_by(models.Charger.id.desc()).all()
     
     hubo_cambios = False
     for c in cargadores:
@@ -41,19 +49,22 @@ def create_charger(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(deps.RoleChecker(["superadmin", "admin", "Super Admin"])) 
 ):
-    """Crea un nuevo cargador en la red incluyendo su configuración de costo ANDE."""
     exists = db.query(models.Charger).filter(models.Charger.serial_number == charger_in.serial_number).first()
     if exists:
         raise HTTPException(status_code=400, detail="El número de serie ya está registrado.")
     
     estado_inicial = "disponible" if charger_in.serial_number in conexiones_activas else "fuera_de_linea"
     
+    target_company_id = charger_in.company_id if current_user.company_id == 1 else current_user.company_id
+
     new_charger = models.Charger(
         serial_number=charger_in.serial_number,
         status=estado_inicial,
         power_kw=charger_in.power_kw,
         location=charger_in.location.model_dump(),
-        company_id=charger_in.company_id or 1,
+        company_id=target_company_id,
+        is_private=charger_in.is_private,
+        owner_user_id=charger_in.owner_user_id,
         ande_tension_type=charger_in.ande_tension_type or "baja",
         ande_cost_off_peak=charger_in.ande_cost_off_peak or 0.0,
         ande_cost_peak=charger_in.ande_cost_peak if charger_in.ande_tension_type == "media" else (charger_in.ande_cost_off_peak or 0.0),
@@ -73,7 +84,6 @@ def update_charger(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(deps.RoleChecker(["superadmin", "admin", "Super Admin"]))
 ):
-    """Actualiza la información y costos ANDE de un cargador existente."""
     charger = db.query(models.Charger).filter(models.Charger.id == charger_id, models.Charger.is_active == True).first()
     if not charger:
         raise HTTPException(status_code=404, detail="Cargador no encontrado.")
@@ -86,6 +96,8 @@ def update_charger(
     charger.serial_number = charger_in.serial_number
     charger.power_kw = charger_in.power_kw
     charger.location = charger_in.location.model_dump()
+    charger.is_private = charger_in.is_private
+    charger.owner_user_id = charger_in.owner_user_id
     charger.ande_tension_type = charger_in.ande_tension_type or "baja"
     charger.ande_cost_off_peak = charger_in.ande_cost_off_peak or 0.0
     charger.ande_cost_peak = charger_in.ande_cost_peak if charger.ande_tension_type == "media" else (charger_in.ande_cost_off_peak or 0.0)
@@ -104,7 +116,6 @@ def delete_charger(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(deps.RoleChecker(["superadmin", "Super Admin"]))
 ):
-    """Realiza un borrado lógico (is_active = False) del cargador."""
     charger = db.query(models.Charger).filter(models.Charger.id == charger_id).first()
     if not charger:
         raise HTTPException(status_code=404, detail="Cargador no encontrado.")
