@@ -1,9 +1,9 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   Zap, Plus, MapPin, Loader2, X, AlertCircle, 
   BatteryCharging, RotateCw, Unlock, Power, Eye, Search, PlusCircle,
   Play, Square, Map, Info, CheckCircle, Edit, Trash2, AlertTriangle,
-  ChevronLeft, ChevronRight, Clock, Download, FileSpreadsheet, Home
+  ChevronLeft, ChevronRight, Clock, Download, FileSpreadsheet, Home, ChevronDown, Check
 } from 'lucide-react';
 import { GoogleMap, useJsApiLoader, MarkerF } from '@react-google-maps/api';
 import api from '../api/axios';
@@ -33,13 +33,91 @@ const getReadableError = (code) => {
   return baseKey ? `${OCPP_ERROR_LABELS[baseKey]} — ${code}` : code;
 };
 
+// Componente Custom Select2 para Usuarios
+const CustomUserSelect = ({ users, value, onChange, placeholder = "Selecciona un propietario..." }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const wrapperRef = useRef(null);
+
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (wrapperRef.current && !wrapperRef.current.contains(event.target)) {
+        setIsOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const filteredUsers = useMemo(() => {
+    const term = search.toLowerCase();
+    return users.filter(u => 
+      `${u.first_name} ${u.last_name}`.toLowerCase().includes(term) ||
+      u.email.toLowerCase().includes(term)
+    );
+  }, [users, search]);
+
+  const selectedUser = users.find(u => u.id === value);
+
+  return (
+    <div className="relative" ref={wrapperRef}>
+      <div 
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full flex items-center justify-between border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 rounded-xl px-4 py-2.5 text-sm cursor-pointer hover:border-sipar-orange/50 transition-colors"
+      >
+        <span className={`truncate font-bold ${selectedUser ? 'text-sipar-dark dark:text-white' : 'text-gray-400'}`}>
+          {selectedUser ? `${selectedUser.first_name} ${selectedUser.last_name} (${selectedUser.email})` : placeholder}
+        </span>
+        <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+      </div>
+
+      {isOpen && (
+        <div className="absolute z-[200] w-full mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-2xl overflow-hidden animate-[fadeIn_0.15s_ease-out]">
+          <div className="p-2 border-b border-gray-100 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-900/50">
+            <div className="flex items-center gap-2 bg-white dark:bg-gray-900 rounded-lg px-3 py-1.5 border border-gray-200 dark:border-gray-700">
+              <Search className="w-3.5 h-3.5 text-gray-400" />
+              <input
+                autoFocus
+                type="text"
+                placeholder="Buscar por nombre o correo..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="bg-transparent border-none text-xs text-sipar-dark dark:text-white focus:outline-none w-full"
+              />
+            </div>
+          </div>
+          <div className="max-h-[220px] overflow-y-auto">
+            {filteredUsers.length === 0 ? (
+              <div className="p-3 text-center text-xs text-gray-400">No se encontraron usuarios</div>
+            ) : (
+              filteredUsers.map(user => (
+                <div
+                  key={user.id}
+                  onClick={() => { onChange(user.id); setIsOpen(false); setSearch(''); }}
+                  className="flex items-center justify-between px-4 py-2.5 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
+                >
+                  <div>
+                    <p className="text-xs font-bold text-sipar-dark dark:text-white">{user.first_name} {user.last_name}</p>
+                    <p className="text-[10px] text-gray-500 dark:text-gray-400">{user.email}</p>
+                  </div>
+                  {value === user.id && <Check className="w-4 h-4 text-sipar-orange" />}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+
 export default function Chargers() {
   const [chargers, setChargers] = useState([]);
-  const [usersList, setUsersList] = useState([]); // <--- NUEVO: Para seleccionar el propietario residencial
+  const [usersList, setUsersList] = useState([]); 
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   
-  // Paginación de la tabla de Cargadores
   const [chargerPage, setChargerPage] = useState(1);
   const [chargerPageSize, setChargerPageSize] = useState(20);
 
@@ -63,7 +141,6 @@ export default function Chargers() {
   const [notification, setNotification] = useState({ show: false, type: '', message: '' });
   const [activeConnector, setActiveConnector] = useState(1);
 
-  // ================= ESTADOS DEL MODAL DE HISTORIAL POR CARGADOR =================
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
   const [historyCharger, setHistoryCharger] = useState(null);
   const [chargerTransactions, setChargerTransactions] = useState([]);
@@ -75,7 +152,7 @@ export default function Chargers() {
   
   const [formData, setFormData] = useState({
     id: null, serial_number: '', power_kw: '', address: '', lat: '', lng: '',
-    is_private: false, owner_user_id: '', // <--- NUEVOS CAMPOS: Privacidad y Dueño
+    is_private: false, owner_user_id: '',
     ande_tension_type: 'baja', ande_cost_off_peak: '', ande_cost_peak: '', ande_peak_start: '18:00', ande_peak_end: '21:00'
   });
 
@@ -84,10 +161,11 @@ export default function Chargers() {
       const token = localStorage.getItem('sipar_token');
       const [chargersRes, usersRes] = await Promise.all([
         api.get('/api/v1/chargers/', { headers: { Authorization: `Bearer ${token}` } }),
-        api.get('/api/v1/users/', { headers: { Authorization: `Bearer ${token}` } }).catch(() => ({ data: [] }))
+        api.get('/api/v1/users/?include_inactive=true', { headers: { Authorization: `Bearer ${token}` } }).catch(() => ({ data: [] }))
       ]);
       setChargers(chargersRes.data);
-      setUsersList(usersRes.data);
+      // Filtramos para asegurar que haya datos válidos para el selector
+      setUsersList(usersRes.data.filter(u => u.first_name && u.email));
     } catch (error) {
       console.error("Error al cargar equipos:", error);
     } finally {
@@ -98,10 +176,10 @@ export default function Chargers() {
   useEffect(() => {
     fetchChargers();
     const interval = setInterval(() => {
-      if(!isModalOpen) fetchChargers(); 
+      if(!isModalOpen && !isDetailsOpen) fetchChargers(); 
     }, 5000);
     return () => clearInterval(interval);
-  }, [isModalOpen]);
+  }, [isModalOpen, isDetailsOpen]);
 
   useEffect(() => {
     if (selectedCharger) {
@@ -185,9 +263,9 @@ export default function Chargers() {
         serial_number: formData.serial_number,
         power_kw: parseFloat(formData.power_kw),
         status: isEditMode && existingCharger ? existingCharger.status : "fuera_de_linea",
-        company_id: 1, // El backend lo reasigna automáticamente si el usuario es de otra empresa (Multi-Tenant)
-        is_private: formData.is_private, // <--- NUEVO
-        owner_user_id: formData.is_private && formData.owner_user_id ? parseInt(formData.owner_user_id) : null, // <--- NUEVO
+        company_id: 1, 
+        is_private: formData.is_private,
+        owner_user_id: formData.is_private && formData.owner_user_id ? parseInt(formData.owner_user_id) : null,
         location: { lat: parseFloat(formData.lat), lng: parseFloat(formData.lng), address: formData.address },
         ande_tension_type: formData.ande_tension_type,
         ande_cost_off_peak: parseFloat(formData.ande_cost_off_peak) || 0,
@@ -238,8 +316,8 @@ export default function Chargers() {
       address: address,
       lat: lat,
       lng: lng,
-      is_private: Boolean(charger.is_private), // <--- NUEVO
-      owner_user_id: charger.owner_user_id || '', // <--- NUEVO
+      is_private: Boolean(charger.is_private),
+      owner_user_id: charger.owner_user_id || '',
       ande_tension_type: charger.ande_tension_type || 'baja',
       ande_cost_off_peak: charger.ande_cost_off_peak !== null && charger.ande_cost_off_peak !== undefined ? charger.ande_cost_off_peak : '',
       ande_cost_peak: charger.ande_cost_peak !== null && charger.ande_cost_peak !== undefined ? charger.ande_cost_peak : '',
@@ -304,7 +382,6 @@ export default function Chargers() {
     }
   };
 
-  // Filtrado y Paginación de Cargadores
   const filteredChargers = useMemo(() => {
     if (!searchTerm) return chargers;
     const lowerTerm = searchTerm.toLowerCase();
@@ -321,7 +398,6 @@ export default function Chargers() {
   const chargerEndIndex = chargerStartIndex + chargerPageSize;
   const paginatedChargers = filteredChargers.slice(chargerStartIndex, chargerEndIndex);
 
-  // Filtrado, Métricas y Paginación del Historial del Cargador Seleccionado
   const filteredHistoryTxs = useMemo(() => {
     if (!historySearch) return chargerTransactions;
     const lower = historySearch.toLowerCase();
@@ -361,7 +437,6 @@ export default function Chargers() {
   const historyEndIndex = historyStartIndex + historyPageSize;
   const paginatedHistoryTxs = filteredHistoryTxs.slice(historyStartIndex, historyEndIndex);
 
-  // Exportar CSV de todas las cargas filtradas de este cargador
   const exportChargerHistoryToCSV = () => {
     if (!historyCharger || filteredHistoryTxs.length === 0) return;
 
@@ -537,7 +612,7 @@ export default function Chargers() {
             <Zap className="w-5 h-5 text-sipar-orange" /> Inventario de Estaciones ({filteredChargers.length})
           </h2>
           <div className="flex items-center gap-3">
-            {/* Selector de paginado (20, 50, 100) */}
+            {/* Selector de paginado */}
             <div className="flex items-center gap-2 bg-gray-800 rounded-lg px-3 py-2 border border-gray-700">
               <span className="text-xs text-gray-400 font-medium">Mostrar:</span>
               <select
@@ -569,7 +644,7 @@ export default function Chargers() {
             <thead>
               <tr className="bg-gray-50 dark:bg-gray-900/50 border-b border-gray-100 dark:border-gray-800 text-[11px] uppercase tracking-wider text-gray-500 dark:text-gray-400 font-bold">
                 <th className="p-4 pl-6">ID / Serie</th>
-                <th className="p-4">Tipo & Privacidad</th>
+                <th className="p-4">Tipo & Propietario</th>
                 <th className="p-4">Ubicación</th>
                 <th className="p-4">Estado Operativo</th>
                 <th className="p-4 text-right pr-6">Acciones</th>
@@ -588,6 +663,13 @@ export default function Chargers() {
                   }
 
                   const hasError = charger.last_error_code && charger.last_error_code !== 'NoError';
+                  
+                  // Obtener nombre del propietario si es privado
+                  let ownerName = '';
+                  if (charger.is_private && charger.owner_user_id) {
+                     const owner = usersList.find(u => u.id === charger.owner_user_id);
+                     if(owner) ownerName = `${owner.first_name} ${owner.last_name}`;
+                  }
 
                   return (
                     <tr key={charger.id} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/40 transition">
@@ -595,26 +677,25 @@ export default function Chargers() {
                         <p className="font-bold text-sipar-dark dark:text-white">{charger.serial_number}</p>
                         <p className="text-[11px] text-gray-400 font-mono mt-0.5">{charger.power_kw} kW</p>
                       </td>
-                      
-                      {/* NUEVA COLUMNA DE TIPO / PRIVACIDAD */}
                       <td className="p-4">
                         {charger.is_private ? (
-                          <span className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300 flex items-center gap-1 w-max">
-                            <Home className="w-3.5 h-3.5" /> Residencial Privado
-                          </span>
+                          <div>
+                            <span className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300 flex items-center gap-1 w-max">
+                              <Home className="w-3.5 h-3.5" /> Residencial Privado
+                            </span>
+                            {ownerName && <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-1 pl-1">Dueño: {ownerName}</p>}
+                          </div>
                         ) : (
-                          <span className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 w-max">
+                          <span className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 w-max inline-block">
                             Público / Red SIPAR
                           </span>
                         )}
                       </td>
-
                       <td className="p-4">
-                        <p className="text-gray-600 dark:text-gray-400 flex items-center gap-1.5 text-[13px] max-w-[200px] truncate" title={displayAddress}>
+                        <p className="text-gray-600 dark:text-gray-400 flex items-center gap-1.5 text-[13px] max-w-[250px] truncate" title={displayAddress}>
                           <MapPin className="w-3.5 h-3.5 text-gray-400 shrink-0" /> {displayAddress}
                         </p>
                       </td>
-                      
                       <td className="p-4">
                         <div className="flex flex-col gap-1">
                           <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold flex items-center w-max gap-1.5 ${
@@ -642,7 +723,6 @@ export default function Chargers() {
                           )}
                         </div>
                       </td>
-
                       <td className="p-4 text-right pr-6 flex justify-end gap-2">
                         <button 
                           onClick={() => openChargerHistoryModal(charger)} 
@@ -1023,7 +1103,7 @@ export default function Chargers() {
                     </div>
                   </div>
 
-                  {/* CONFIGURACIÓN DE CARGADOR PRIVADO / RESIDENCIAL */}
+                  {/* CONFIGURACIÓN DE CARGADOR PRIVADO / RESIDENCIAL CON SELECTOR CUSTOM */}
                   <div className="p-4 rounded-xl bg-purple-50 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-900/40 space-y-3">
                     <label className="flex items-center gap-3 cursor-pointer">
                       <input 
@@ -1042,17 +1122,14 @@ export default function Chargers() {
 
                     {formData.is_private && (
                       <div>
-                        <label className="block text-[11px] font-bold text-gray-600 dark:text-gray-400 uppercase tracking-wide mb-1">Propietario del Cargador (Usuario)</label>
-                        <select 
+                        <label className="block text-[11px] font-bold text-gray-600 dark:text-gray-400 uppercase tracking-wide mb-1">
+                          Propietario del Cargador (Usuario)
+                        </label>
+                        <CustomUserSelect 
+                          users={usersList} 
                           value={formData.owner_user_id} 
-                          onChange={e => setFormData({...formData, owner_user_id: e.target.value})}
-                          className="w-full border border-gray-300 dark:border-gray-700 rounded-xl px-3 py-2 text-xs bg-white dark:bg-gray-900 text-sipar-dark dark:text-white font-bold outline-none"
-                        >
-                          <option value="">Selecciona el usuario propietario...</option>
-                          {usersList.map(u => (
-                            <option key={u.id} value={u.id}>{u.first_name} {u.last_name} ({u.email})</option>
-                          ))}
-                        </select>
+                          onChange={(val) => setFormData({...formData, owner_user_id: val})} 
+                        />
                       </div>
                     )}
                   </div>
