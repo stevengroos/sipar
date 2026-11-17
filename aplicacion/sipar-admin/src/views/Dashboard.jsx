@@ -61,8 +61,8 @@ export default function Dashboard() {
   });
 
   const [data, setData] = useState({ kpis: null, chargers: [], transactions: [], topDrivers: [] });
-  const [period, setPeriod] = useState('all'); // 'today' | 'month' | 'all'
-  const [mapFilter, setMapFilter] = useState('all'); // 'all' | 'disponible' | 'active' | 'falla' | 'offline'
+  const [period, setPeriod] = useState('all');
+  const [mapFilter, setMapFilter] = useState('all');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedMarker, setSelectedMarker] = useState(null);
@@ -71,7 +71,6 @@ export default function Dashboard() {
     document.documentElement.classList.contains('dark') || localStorage.getItem('sipar_dark_mode') === 'true'
   );
 
-  // Estados para el Modal de Diagnóstico OCPP
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const [activeConnector, setActiveConnector] = useState(1);
   const [isCommandSending, setIsCommandSending] = useState('');
@@ -87,11 +86,18 @@ export default function Dashboard() {
 
   const fetchAllData = async (signal) => {
     try {
+      // OBTENER EL TOKEN Y AGREGARLO A LOS HEADERS
+      const token = localStorage.getItem('sipar_token');
+      const config = { 
+        signal, 
+        headers: { Authorization: `Bearer ${token}` } 
+      };
+
       const [kpisRes, mapRes, txRes, driversRes] = await Promise.all([
-        api.get(`/api/v1/dashboards/kpis?period=${period}`, { signal }),
-        api.get('/api/v1/dashboards/map-chargers', { signal }),
-        api.get('/api/v1/dashboards/recent-transactions?limit=8', { signal }),
-        api.get(`/api/v1/dashboards/top-drivers?period=${period}`, { signal })
+        api.get(`/api/v1/dashboards/kpis?period=${period}`, config),
+        api.get('/api/v1/dashboards/map-chargers', config),
+        api.get('/api/v1/dashboards/recent-transactions?limit=8', config),
+        api.get(`/api/v1/dashboards/top-drivers?period=${period}`, config)
       ]);
 
       setData({
@@ -122,7 +128,6 @@ export default function Dashboard() {
     };
   }, [period]);
 
-  // Mantener actualizado el marcador seleccionado cuando cambian los datos en vivo
   useEffect(() => {
     if (selectedMarker && data.chargers.length > 0) {
       const updated = data.chargers.find(c => c.id === selectedMarker.id);
@@ -147,18 +152,17 @@ export default function Dashboard() {
     return { lat, lng, address: parsed?.address || 'Estación SIPAR' };
   };
 
-  // Marcador SVG personalizado con soporte para los 5 estados (Disponible, Conectado, Cargando, Falla, Offline)
   const getCustomMarkerIcon = (serial, status, lastErrorCode) => {
     const hasFault = status === 'falla' || (lastErrorCode && lastErrorCode !== 'NoError');
     const dotColor = hasFault
-      ? '#f97316' // Naranja alerta para Falla Técnica (PE / CP)
+      ? '#f97316'
       : status === 'disponible'
-      ? '#22c55e' // Verde
+      ? '#22c55e'
       : status === 'conectado'
-      ? '#eab308' // Ámbar (Preparing)
+      ? '#eab308'
       : status === 'en_uso'
-      ? '#3b82f6' // Azul (Charging)
-      : '#ef4444'; // Rojo (Offline)
+      ? '#3b82f6'
+      : '#ef4444';
 
     const strokeColor = hasFault ? '#ef4444' : '#FF9E00';
 
@@ -261,7 +265,6 @@ export default function Dashboard() {
   return (
     <div className="block animate-[fadeIn_0.2s_ease-out] relative space-y-6">
 
-      {/* ================= NOTIFICACIÓN TOAST ================= */}
       {notification.show && (
         <div className={`fixed top-6 right-6 z-[200] flex items-center gap-3 px-5 py-4 rounded-xl shadow-2xl animate-[slideDown_0.3s_ease-out] border ${
           notification.type === 'success' 
@@ -279,7 +282,6 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* ================= BARRA SUPERIOR: FILTRO DE PERÍODO Y ACCESOS RÁPIDOS ================= */}
       <div className="flex flex-wrap justify-between items-center gap-4">
         <div>
           <h2 className="text-xl font-bold text-sipar-dark dark:text-white flex items-center gap-2">
@@ -311,10 +313,8 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* ================= 4 TARJETAS KPI ENRIQUECIDAS ================= */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
         
-        {/* KPI 1: Facturación Neta, Costo ANDE y Margen */}
         <div
           onClick={() => navigate('/admin/finanzas')}
           className="bg-white dark:bg-sipar-dark rounded-[20px] p-5 shadow-[0_2px_15px_rgba(0,0,0,0.03)] border border-gray-100 dark:border-gray-800 hover:border-sipar-orange/50 cursor-pointer flex items-center justify-between transition"
@@ -341,7 +341,6 @@ export default function Dashboard() {
           </div>
         </div>
         
-        {/* KPI 2: Energía Entregada & Sesiones */}
         <div
           onClick={() => navigate('/admin/historial')}
           className="bg-white dark:bg-sipar-dark rounded-[20px] p-5 shadow-[0_2px_15px_rgba(0,0,0,0.03)] border border-gray-100 dark:border-gray-800 hover:border-sipar-orange/50 cursor-pointer flex items-center justify-between transition"
@@ -366,7 +365,6 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* KPI 3: Estado Operativo de Estaciones & Alertas */}
         <div
           onClick={() => navigate('/admin/cargadores')}
           className={`bg-white dark:bg-sipar-dark rounded-[20px] p-5 shadow-[0_2px_15px_rgba(0,0,0,0.03)] border cursor-pointer flex items-center justify-between transition ${
@@ -395,7 +393,6 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* KPI 4: Impacto Ecológico & Usuarios */}
         <div
           onClick={() => navigate('/admin/usuarios')}
           className="bg-white dark:bg-sipar-dark rounded-[20px] p-5 shadow-[0_2px_15px_rgba(0,0,0,0.03)] border border-gray-100 dark:border-gray-800 hover:border-sipar-orange/50 cursor-pointer flex items-center justify-between transition"
@@ -418,14 +415,12 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         
-        {/* ================= MAPA DE GOOGLE EN VIVO ================= */}
         <div className="lg:col-span-2 bg-white dark:bg-sipar-dark rounded-[20px] shadow-[0_2px_15px_rgba(0,0,0,0.03)] border border-gray-100 dark:border-gray-800 overflow-hidden flex flex-col h-[650px] transition-colors">
           <div className="px-6 py-4 border-b border-gray-50 dark:border-gray-800 bg-white dark:bg-sipar-dark flex flex-wrap justify-between items-center gap-3 z-10 transition-colors">
             <h2 className="text-[15px] font-bold text-sipar-dark dark:text-white flex items-center gap-2">
               <MapPin className="w-4 h-4 text-sipar-orange" /> Mapa de Red en Vivo ({filteredMapChargers.length})
             </h2>
 
-            {/* Píldoras de Filtro de Estado en el Mapa */}
             <div className="flex flex-wrap items-center gap-1.5">
               {[
                 { id: 'all', label: 'Todas', dot: null },
@@ -477,7 +472,6 @@ export default function Dashboard() {
                   );
                 })}
 
-                {/* VENTANA EMERGENTE AL HACER CLIC EN UN CARGADOR */}
                 {selectedMarker && !isDetailsOpen && selectedMarker.parsedLocation && (
                   <InfoWindowF
                     position={{ lat: selectedMarker.parsedLocation.lat, lng: selectedMarker.parsedLocation.lng }}
@@ -551,10 +545,8 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* ================= COLUMNA DERECHA ================= */}
         <div className="flex flex-col gap-6 h-[650px]">
           
-          {/* Top Conductores */}
           <div className="bg-white dark:bg-sipar-dark rounded-[20px] shadow-[0_2px_15px_rgba(0,0,0,0.03)] border border-gray-100 dark:border-gray-800 flex flex-col flex-1 min-h-0 transition-colors">
             <div className="px-6 py-4 border-b border-gray-50 dark:border-gray-800 bg-white dark:bg-sipar-dark flex justify-between items-center flex-shrink-0 rounded-t-[20px]">
               <h2 className="text-[14px] font-bold text-sipar-dark dark:text-white flex items-center gap-2">
@@ -598,7 +590,6 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* Últimas Recargas y Estado OCPP */}
           <div className="bg-white dark:bg-sipar-dark rounded-[20px] shadow-[0_2px_15px_rgba(0,0,0,0.03)] border border-gray-100 dark:border-gray-800 flex flex-col flex-1 min-h-0 transition-colors">
             <div className="px-6 py-4 border-b border-gray-50 dark:border-gray-800 bg-white dark:bg-sipar-dark flex justify-between items-center flex-shrink-0 rounded-t-[20px]">
               <h2 className="text-[14px] font-bold text-sipar-dark dark:text-white flex items-center gap-2">
@@ -650,7 +641,6 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* ================= MODAL DE DETALLES Y CONTROL OCPP EN VIVO ================= */}
       {isDetailsOpen && selectedMarker && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-sipar-dark/60 backdrop-blur-sm p-4 animate-[fadeIn_0.15s_ease-out]">
           <div className="bg-white dark:bg-sipar-dark rounded-[20px] w-full max-w-4xl shadow-2xl flex flex-col overflow-hidden border border-gray-200 dark:border-gray-800 animate-[slideUp_0.2s_ease-out] transition-colors">
