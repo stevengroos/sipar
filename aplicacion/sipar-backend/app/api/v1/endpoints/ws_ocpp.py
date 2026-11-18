@@ -405,7 +405,7 @@ class ChargePointHandler(cp):
                     if conector_db:
                         conector_db.status = "en_uso"
                         conector_db.error_code = "NoError"
-                    # Si no hay potencia ni corriente, acumulamos segundos de inactividad
+                    
                     if tx and (current_kw <= 0.05 and current_amps <= 0.5):
                         tx.idle_seconds = (tx.idle_seconds or 0) + 15
 
@@ -616,15 +616,76 @@ async def comando_reset(charge_point_id: str, tipo: str = "Soft"):
     except asyncio.TimeoutError:
         return {"mensaje": "Comando Reset enviado", "respuesta_hardware": "Accepted (Reinicio en progreso)"}
 
+
+# --- TAREA EN SEGUNDO PLANO PARA AUTO-CORTE (TEMPORIZADOR) ---
+async def auto_stop_task(charge_point_id: str, transaction_id: int, connector_id: int, duration_minutes: int):
+    """Espera el tiempo indicado y luego envía el comando de parada remota."""
+    logger.info(f"⏱️ Temporizador activado: Parada programada para {charge_point_id} en {duration_minutes} minutos (Tx: {transaction_id}).")
+    
+    # 1. Dormimos la tarea sin bloquear el servidor
+    await asyncio.sleep(duration_minutes * 60)
+    
+    # 2. Despertamos y verificamos si la transacción sigue activa (quizás el usuario la cortó antes)
+    db = SessionLocal()
+    try:
+        tx = db.query(models.Transaction).filter(models.Transaction.id == transaction_id).first()
+        if not tx or tx.status != "en_curso":
+            logger.info(f"⏳ Temporizador descartado: La sesión {transaction_id} ya concluyó por su cuenta.")
+            return
+    finally:
+        db.close()
+
+    # 3. La transacción sigue activa, forzamos el corte
+    logger.info(f"🛑 Tiempo cumplido ({duration_minutes} min). Ejecutando parada automática en {charge_point_id}.")
+    cargador = conexiones_activas.get(charge_point_id)
+    
+    if cargador:
+        paradas_solicitadas_admin.add(charge_point_id)
+        request = call.RemoteStopTransaction(transaction_id=transaction_id)
+        try:
+            await cargador.call(request)
+        except Exception as e:
+            logger.error(f"Error al enviar RemoteStopTransaction automático: {e}")
+    else:
+        logger.warning(f"⚠️ El cargador {charge_point_id} está desconectado. No se pudo enviar el Auto-Stop.")
+
+
 @router.post("/{charge_point_id}/start")
-async def comando_iniciar_carga(charge_point_id: str, tag: str = "APP-SIPAR", connector_id: int = 1):
+async def comando_iniciar_carga(
+    charge_point_id: str, 
+    tag: str = "APP-SIPAR", 
+    connector_id: int = 1,
+    duration_minutes: int = 0 # <--- NUEVO: Parámetro de temporizador opcional
+):
     cargador = conexiones_activas.get(charge_point_id)
     if not cargador:
         raise HTTPException(status_code=404, detail="El cargador está offline")
+    
     paradas_solicitadas_admin.discard(charge_point_id)
     request = call.RemoteStartTransaction(id_tag=tag, connector_id=connector_id)
     response = await cargador.call(request)
-    return {"mensaje": "Comando Inicio enviado", "respuesta_hardware": response.status}
+
+    # Si el hardware aceptó el inicio Y se programó un tiempo, disparamos el Temporizador
+    if response.status == "Accepted" and duration_minutes > 0:
+        db = SessionLocal()
+        try:
+            # Buscamos el ID de la transacción recién creada para pasarla a la tarea
+            ch_db = db.query(models.Charger).filter(models.Charger.serial_number == charge_point_id).first()
+            if ch_db:
+                active_tx = db.query(models.Transaction).filter(
+                    models.Transaction.charger_id == ch_db.id,
+                    models.Transaction.status == "en_curso"
+                ).order_by(models.Transaction.id.desc()).first()
+                
+                if active_tx:
+                    asyncio.create_task(auto_stop_task(charge_point_id, active_tx.id, connector_id, duration_minutes))
+        finally:
+            db.close()
+
+    return {
+        "mensaje": f"Comando Inicio enviado. {f'Temporizador: {duration_minutes} min.' if duration_minutes > 0 else ''}", 
+        "respuesta_hardware": response.status
+    }
 
 @router.post("/{charge_point_id}/stop")
 async def comando_parar_carga(charge_point_id: str, transaction_id: int = 1, connector_id: int = 1):

@@ -7,7 +7,8 @@ import '../../../core/theme.dart';
 import '../../../models/charger_station.dart';
 import 'map_ui_palette.dart';
 
-class StationBottomSheet extends StatelessWidget {
+// Convertimos a StatefulWidget para manejar el estado del Slider de tiempo
+class StationBottomSheet extends StatefulWidget {
   final ChargerStationModel station;
   final int activeConnectorId;
   final String sendingCommand;
@@ -17,7 +18,8 @@ class StationBottomSheet extends StatelessWidget {
   final ValueChanged<int> onSelectConnector;
   final VoidCallback onClose;
   final VoidCallback onOpenMaps;
-  final ValueChanged<String> onSendCommand;
+  // Cambiamos el callback para que envíe también la duración elegida en minutos
+  final void Function(String command, {int durationMinutes}) onSendCommand;
 
   const StationBottomSheet({
     super.key,
@@ -32,6 +34,14 @@ class StationBottomSheet extends StatelessWidget {
     required this.onOpenMaps,
     required this.onSendCommand,
   });
+
+  @override
+  State<StationBottomSheet> createState() => _StationBottomSheetState();
+}
+
+class _StationBottomSheetState extends State<StationBottomSheet> {
+  // 0 significa "Sin Límite", > 0 es el tiempo en minutos
+  double _selectedMinutes = 0;
 
   String _formatPyg(double val) {
     final s = val.round().abs().toString();
@@ -54,34 +64,75 @@ class StationBottomSheet extends StatelessWidget {
     }
   }
 
+  // Calcula el costo de cargar por la cantidad de minutos elegidos a la potencia máxima
+  double _calculateCostForMinutes(
+    double minutes,
+    double powerKw,
+    int priceKwh,
+  ) {
+    if (minutes == 0) return 0;
+    double kwhToConsume = (minutes / 60) * powerKw;
+    return kwhToConsume * priceKwh;
+  }
+
+  String _formatDurationLabel(double val) {
+    if (val == 0) return "Sin Límite";
+    if (val < 60) return "${val.toInt()} min";
+    int h = val.toInt() ~/ 60;
+    int m = val.toInt() % 60;
+    if (m == 0) return "${h}h";
+    return "${h}h ${m}m";
+  }
+
   @override
   Widget build(BuildContext context) {
     final palette = MapUiPalette.of(context);
 
     final activeConnectorObj =
-        station.connectors
-            .where((c) => c.connectorId == activeConnectorId)
+        widget.station.connectors
+            .where((c) => c.connectorId == widget.activeConnectorId)
             .firstOrNull ??
-        (station.connectors.isNotEmpty ? station.connectors.first : null);
+        (widget.station.connectors.isNotEmpty
+            ? widget.station.connectors.first
+            : null);
 
-    final displayConnectorStatus = station.isOffline
+    final displayConnectorStatus = widget.station.isOffline
         ? 'fuera_de_linea'
-        : (activeConnectorObj?.status ?? station.status);
+        : (activeConnectorObj?.status ?? widget.station.status);
 
     final activeErrorCode =
         (activeConnectorObj != null &&
             activeConnectorObj.errorCode.isNotEmpty &&
             activeConnectorObj.errorCode != 'NoError')
         ? activeConnectorObj.errorCode
-        : station.lastErrorCode;
+        : widget.station.lastErrorCode;
 
     final isConnectorCharging = displayConnectorStatus == 'en_uso';
-    final hasInsufficientBalance =
-        !isConnectorCharging && walletBalance != null && walletBalance! <= 0;
+
+    // --- LÓGICA FINANCIERA PARA EL TEMPORIZADOR ---
+    final double currentBalance = widget.walletBalance ?? 0.0;
+    // Potencia del conector actual
+    final double currentPowerKw = widget.activeConnectorId == 1
+        ? widget.station.powerKw
+        : (widget.station.powerKw >= 120 ? 60.0 : widget.station.powerKw);
+
+    final double estimatedCost = _calculateCostForMinutes(
+      _selectedMinutes,
+      currentPowerKw,
+      widget.station.priceKwh,
+    );
+
+    // El balance es insuficiente si no tiene dinero en absoluto, o si escogió un tiempo y el costo supera su saldo
+    final bool hasInsufficientBalance =
+        !isConnectorCharging &&
+        (currentBalance <= 0 ||
+            (_selectedMinutes > 0 && estimatedCost > currentBalance));
 
     return Container(
       constraints: BoxConstraints(
-        maxHeight: MediaQuery.of(context).size.height * 0.68,
+        maxHeight:
+            MediaQuery.of(context).size.height *
+            0.85, // Aumentado para alojar el Slider
       ),
       padding: const EdgeInsets.fromLTRB(16, 10, 16, 104),
       decoration: BoxDecoration(
@@ -107,7 +158,7 @@ class StationBottomSheet extends StatelessWidget {
               children: [
                 const SizedBox(width: 28),
                 GestureDetector(
-                  onTap: onClose,
+                  onTap: widget.onClose,
                   child: Container(
                     width: 38,
                     height: 4,
@@ -118,7 +169,7 @@ class StationBottomSheet extends StatelessWidget {
                   ),
                 ),
                 GestureDetector(
-                  onTap: onClose,
+                  onTap: widget.onClose,
                   child: Container(
                     width: 28,
                     height: 28,
@@ -190,10 +241,16 @@ class StationBottomSheet extends StatelessWidget {
                     width: 42,
                     height: 42,
                     decoration: BoxDecoration(
-                      color: statusColor.withValues(alpha: 0.14),
+                      color: widget.statusColor.withValues(alpha: 0.14),
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    child: Icon(LucideIcons.zap, color: statusColor, size: 20),
+                    child: Icon(
+                      widget.station.isPrivate
+                          ? LucideIcons.home
+                          : LucideIcons.zap,
+                      color: widget.statusColor,
+                      size: 20,
+                    ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
@@ -208,25 +265,27 @@ class StationBottomSheet extends StatelessWidget {
                                 vertical: 2,
                               ),
                               decoration: BoxDecoration(
-                                color: statusColor.withValues(alpha: 0.14),
+                                color: widget.statusColor.withValues(
+                                  alpha: 0.14,
+                                ),
                                 borderRadius: BorderRadius.circular(6),
                               ),
                               child: Text(
                                 _statusLabel(
-                                  station.status,
-                                  station.hasFault,
-                                  station.isOffline,
+                                  widget.station.status,
+                                  widget.station.hasFault,
+                                  widget.station.isOffline,
                                 ),
                                 style: TextStyle(
                                   fontSize: 10,
                                   fontWeight: FontWeight.w800,
-                                  color: statusColor,
+                                  color: widget.statusColor,
                                 ),
                               ),
                             ),
                             const SizedBox(width: 6),
                             Text(
-                              station.serialNumber,
+                              widget.station.serialNumber,
                               style: TextStyle(
                                 fontSize: 11,
                                 fontWeight: FontWeight.w600,
@@ -237,7 +296,7 @@ class StationBottomSheet extends StatelessWidget {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          station.address,
+                          widget.station.address,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
@@ -253,7 +312,7 @@ class StationBottomSheet extends StatelessWidget {
                   GestureDetector(
                     onTap: () {
                       HapticFeedback.lightImpact();
-                      onOpenMaps();
+                      widget.onOpenMaps();
                     },
                     child: Container(
                       padding: const EdgeInsets.symmetric(
@@ -277,7 +336,9 @@ class StationBottomSheet extends StatelessWidget {
                           ),
                           const SizedBox(height: 2),
                           Text(
-                            station.distanceLabelFrom(referenceCenter),
+                            widget.station.distanceLabelFrom(
+                              widget.referenceCenter,
+                            ),
                             style: const TextStyle(
                               fontSize: 10.5,
                               fontWeight: FontWeight.w800,
@@ -301,7 +362,7 @@ class StationBottomSheet extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    'Selecciona una manguera (${station.availableConnectors}/${station.totalConnectors} disp.)',
+                    'Selecciona una manguera (${widget.station.availableConnectors}/${widget.station.totalConnectors} disp.)',
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w700,
@@ -309,7 +370,7 @@ class StationBottomSheet extends StatelessWidget {
                     ),
                   ),
                   Text(
-                    '${station.priceKwh} ₲ / kWh',
+                    '${widget.station.priceKwh} ₲ / kWh',
                     style: const TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w800,
@@ -322,27 +383,31 @@ class StationBottomSheet extends StatelessWidget {
             const SizedBox(height: 8),
 
             Row(
-              children: station.connectors.map((con) {
-                final isSelectedCon = activeConnectorId == con.connectorId;
-                final realStatus = station.isOffline
+              children: widget.station.connectors.map((con) {
+                final isSelectedCon =
+                    widget.activeConnectorId == con.connectorId;
+                final realStatus = widget.station.isOffline
                     ? 'fuera_de_linea'
                     : con.status;
                 final conKw = con.connectorId == 1
-                    ? station.powerKw
-                    : (station.powerKw >= 120 ? 60.0 : station.powerKw);
+                    ? widget.station.powerKw
+                    : (widget.station.powerKw >= 120
+                          ? 60.0
+                          : widget.station.powerKw);
 
                 return Expanded(
                   child: Padding(
                     padding: EdgeInsets.only(
                       right:
-                          con.connectorId == 1 && station.connectors.length > 1
+                          con.connectorId == 1 &&
+                              widget.station.connectors.length > 1
                           ? 8
                           : 0,
                     ),
                     child: GestureDetector(
                       onTap: () {
                         HapticFeedback.selectionClick();
-                        onSelectConnector(con.connectorId);
+                        widget.onSelectConnector(con.connectorId);
                       },
                       child: _CompactConnectorTile(
                         palette: palette,
@@ -350,7 +415,7 @@ class StationBottomSheet extends StatelessWidget {
                         type: con.type,
                         powerLabel: '${conKw.toStringAsFixed(0)} kW',
                         speedLabel:
-                            '~${station.estimateKmPerMin(connectorKw: conKw)} km/min',
+                            '~${widget.station.estimateKmPerMin(connectorKw: conKw)} km/min',
                         status: realStatus,
                         isSelected: isSelectedCon,
                       ),
@@ -362,7 +427,7 @@ class StationBottomSheet extends StatelessWidget {
 
             const SizedBox(height: 14),
 
-            // 3. ZONA DEL PULGAR: SALDO WALLET + BOTÓN DE CARGA OCPP
+            // 3. ZONA DEL PULGAR: SALDO WALLET + ESTIMACIÓN + BOTÓN DE CARGA OCPP
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
@@ -380,13 +445,13 @@ class StationBottomSheet extends StatelessWidget {
                           Icon(
                             LucideIcons.wallet,
                             size: 15,
-                            color: hasInsufficientBalance
+                            color: currentBalance <= 0
                                 ? SiparColors.red
                                 : SiparColors.green,
                           ),
                           const SizedBox(width: 6),
                           Text(
-                            'Saldo disponible en Wallet:',
+                            'Saldo en Wallet:',
                             style: TextStyle(
                               fontSize: 12,
                               fontWeight: FontWeight.w600,
@@ -396,36 +461,171 @@ class StationBottomSheet extends StatelessWidget {
                         ],
                       ),
                       Text(
-                        walletBalance == null
+                        widget.walletBalance == null
                             ? 'Consultando...'
-                            : _formatPyg(walletBalance!),
+                            : _formatPyg(currentBalance),
                         style: TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w800,
-                          color: hasInsufficientBalance
+                          color: currentBalance <= 0
                               ? SiparColors.red
                               : palette.textPrimary,
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 10),
+
+                  // TEXTO DE ESTIMACIÓN MÁXIMA DE CARGA SEGÚN SALDO
+                  if (widget.walletBalance != null && !isConnectorCharging)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8, bottom: 2),
+                      child: Row(
+                        children: [
+                          Icon(
+                            LucideIcons.clock,
+                            size: 12,
+                            color: palette.textSecondary.withValues(alpha: 0.8),
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            currentBalance <= 0
+                                ? 'Sin saldo para iniciar carga'
+                                : 'Con tu saldo actual puedes cargar aprox. ',
+                            style: TextStyle(
+                              fontSize: 10.5,
+                              color: palette.textSecondary,
+                            ),
+                          ),
+                          if (currentBalance > 0)
+                            Text(
+                              widget.station.calculateEstimatedTime(
+                                currentBalance,
+                              ),
+                              style: TextStyle(
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.bold,
+                                color: palette.textPrimary,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+
+                  // --- NUEVO: DESLIZADOR (SLIDER) DEL TEMPORIZADOR ---
+                  if (!isConnectorCharging) ...[
+                    const SizedBox(height: 12),
+                    Divider(color: palette.border),
+                    const SizedBox(height: 12),
+
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'Detener automáticamente en:',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: palette.textSecondary,
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: _selectedMinutes > 0
+                                ? SiparColors.orange.withValues(alpha: 0.15)
+                                : palette.subtleBg,
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            _formatDurationLabel(_selectedMinutes),
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w800,
+                              color: _selectedMinutes > 0
+                                  ? SiparColors.orange
+                                  : palette.textPrimary,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 4),
+
+                    SliderTheme(
+                      data: SliderTheme.of(context).copyWith(
+                        activeTrackColor: SiparColors.orange,
+                        inactiveTrackColor: palette.border,
+                        thumbColor: SiparColors.orange,
+                        overlayColor: SiparColors.orange.withValues(alpha: 0.2),
+                        trackHeight: 4,
+                      ),
+                      child: Slider(
+                        value: _selectedMinutes,
+                        min: 0,
+                        max: 240, // Máximo 4 horas (240 min)
+                        divisions:
+                            16, // Incrementos de 15 minutos (0, 15, 30, 45, 60...)
+                        onChanged: (val) {
+                          HapticFeedback.selectionClick();
+                          setState(() => _selectedMinutes = val);
+                        },
+                      ),
+                    ),
+
+                    // Alerta si el tiempo escogido supera el saldo disponible
+                    if (_selectedMinutes > 0 && estimatedCost > currentBalance)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Row(
+                          children: [
+                            const Icon(
+                              LucideIcons.triangleAlert,
+                              size: 12,
+                              color: SiparColors.red,
+                            ),
+                            const SizedBox(width: 4),
+                            Expanded(
+                              child: Text(
+                                'Costo estimado (${_formatPyg(estimatedCost)}) supera tu saldo actual.',
+                                style: const TextStyle(
+                                  fontSize: 10,
+                                  color: SiparColors.red,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+
+                  const SizedBox(height: 8),
+
                   SizedBox(
                     width: double.infinity,
                     height: 48,
                     child: ElevatedButton.icon(
                       onPressed:
-                          (station.isOffline ||
-                              sendingCommand.isNotEmpty ||
-                              station.hasFault)
+                          (widget.station.isOffline ||
+                              widget.sendingCommand.isNotEmpty ||
+                              widget.station.hasFault ||
+                              hasInsufficientBalance)
                           ? null
                           : () {
                               HapticFeedback.mediumImpact();
-                              onSendCommand(
-                                isConnectorCharging
-                                    ? 'StopCharge'
-                                    : 'StartCharge',
-                              );
+
+                              if (isConnectorCharging) {
+                                widget.onSendCommand('StopCharge');
+                              } else {
+                                widget.onSendCommand(
+                                  'StartCharge',
+                                  durationMinutes: _selectedMinutes.toInt(),
+                                );
+                              }
                             },
                       style: ElevatedButton.styleFrom(
                         backgroundColor: isConnectorCharging
@@ -445,15 +645,15 @@ class StationBottomSheet extends StatelessWidget {
                         size: 16,
                       ),
                       label: Text(
-                        sendingCommand.isNotEmpty
-                            ? sendingCommand
-                            : station.hasFault
+                        widget.sendingCommand.isNotEmpty
+                            ? widget.sendingCommand
+                            : widget.station.hasFault
                             ? 'Estación en Mantenimiento'
-                            : station.isOffline
+                            : widget.station.isOffline
                             ? 'Estación Fuera de Línea'
                             : isConnectorCharging
-                            ? 'Detener Carga (Manguera #$activeConnectorId)'
-                            : 'Iniciar Carga en Manguera #$activeConnectorId',
+                            ? 'Detener Carga (Manguera #${widget.activeConnectorId})'
+                            : 'Iniciar Carga en Manguera #${widget.activeConnectorId}',
                         style: const TextStyle(
                           fontWeight: FontWeight.w800,
                           fontSize: 13.5,
@@ -461,6 +661,35 @@ class StationBottomSheet extends StatelessWidget {
                       ),
                     ),
                   ),
+
+                  // AVISO LEGAL DE INACTIVIDAD
+                  if (!isConnectorCharging)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 12),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(
+                            LucideIcons.info,
+                            size: 12,
+                            color: palette.textSecondary,
+                          ),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Text(
+                              _selectedMinutes > 0
+                                  ? 'La carga se cortará automáticamente. Si no desconectas el vehículo a tiempo, aplicará la tarifa por inactividad, lo que podría generar un saldo negativo.'
+                                  : 'Asegúrate de detener la carga y desconectar el vehículo al terminar. De lo contrario, aplicará la tarifa por inactividad pudiendo generar saldo negativo.',
+                              style: TextStyle(
+                                fontSize: 9.5,
+                                color: palette.textSecondary,
+                                height: 1.3,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                 ],
               ),
             ),

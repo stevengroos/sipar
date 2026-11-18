@@ -189,7 +189,7 @@ class _InicioMapViewState extends State<InicioMapView> {
         statusColor: _statusColor(ch),
         isSelected: isSelected,
         isDark: isDark,
-        isPrivate: ch.isPrivate, // <--- INYECTAMOS PRIVACIDAD AL MARCADOR
+        isPrivate: ch.isPrivate,
       );
 
       newMarkers.add(
@@ -197,7 +197,7 @@ class _InicioMapViewState extends State<InicioMapView> {
           markerId: MarkerId(ch.serialNumber),
           position: ch.position,
           icon: icon,
-          zIndex: isSelected ? 10.0 : 1.0,
+          zIndexInt: isSelected ? 10 : 1,
           onTap: () => _selectStation(ch),
         ),
       );
@@ -258,7 +258,10 @@ class _InicioMapViewState extends State<InicioMapView> {
     }
   }
 
-  Future<void> _sendOcppCommand(String commandType) async {
+  Future<void> _sendOcppCommand(
+    String commandType, {
+    int? durationMinutes,
+  }) async {
     final station = _selectedStation;
     if (station == null || _sendingCommand.isNotEmpty) return;
 
@@ -292,8 +295,12 @@ class _InicioMapViewState extends State<InicioMapView> {
       String endpoint = '';
 
       if (commandType == 'StartCharge') {
+        // --- INYECCIÓN DE TEMPORIZADOR AL ENDPOINT ---
+        final timerParam = (durationMinutes != null && durationMinutes > 0)
+            ? '&duration_minutes=$durationMinutes'
+            : '';
         endpoint =
-            '/api/v1/ocpp/$serial/start?tag=$idTag&connector_id=$_activeConnectorId';
+            '/api/v1/ocpp/$serial/start?tag=$idTag&connector_id=$_activeConnectorId$timerParam';
       } else if (commandType == 'StopCharge') {
         endpoint =
             '/api/v1/ocpp/$serial/stop?transaction_id=1&connector_id=$_activeConnectorId';
@@ -310,6 +317,7 @@ class _InicioMapViewState extends State<InicioMapView> {
           SnackBar(
             backgroundColor: SiparColors.green,
             behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 4),
             content: Text('Estación $serial: "$hwMsg"'),
           ),
         );
@@ -592,8 +600,7 @@ class _InicioMapViewState extends State<InicioMapView> {
                                 Icon(
                                   st.isPrivate
                                       ? LucideIcons.home
-                                      : LucideIcons
-                                            .zap, // <--- CAMBIO DE ICONO SEGÚN TIPO
+                                      : LucideIcons.zap,
                                   size: 14,
                                   color: palette.isDark
                                       ? stColor
@@ -687,7 +694,9 @@ class _InicioMapViewState extends State<InicioMapView> {
                 selected.position.latitude,
                 selected.position.longitude,
               ),
-              onSendCommand: _sendOcppCommand,
+              onSendCommand: (command, {int? durationMinutes}) {
+                _sendOcppCommand(command, durationMinutes: durationMinutes);
+              },
             ),
           ),
       ],
